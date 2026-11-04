@@ -31,12 +31,14 @@ openapi                     API contract (added incrementally with modules)
 
 The backend owns all application data. The Next.js app becomes a frontend/server-rendered client and should stop importing Mongoose models or handling business mutations.
 
+Supabase PostgreSQL is the target persistence platform. MongoDB is retained only as a compatibility adapter for handlers that have not yet been rewritten. See `docs/SUPABASE_POSTGRES.md` for connection, transaction, and migration rules.
+
 ## Viharam domain principles
 
-- PostgreSQL is the source of truth for users, experiences, availability, bookings, payments, hosts, ambassadors, marketplace records, and governance records.
+- The selected persistence provider is Supabase PostgreSQL through `pgx`; MongoDB remains available only during migration compatibility work.
 - Money is stored as integer INR paise, never floating-point rupees.
 - UUIDs are used for public identifiers.
-- Booking and inventory-like capacity changes are transaction-safe.
+- Booking and inventory-like capacity changes use PostgreSQL transactions, row locks, constraints, and idempotency keys.
 - Every mutation is scoped to the authenticated user, host, ambassador, or administrator role.
 - Public catalogue reads are separated from authenticated mutations.
 - Audit records are append-only.
@@ -61,4 +63,4 @@ Apply migrations using the project migration command once it is added to the dep
 
 ## Migration status
 
-The initial service foundation, core Viharam PostgreSQL schema, auth module, catalogue module, middleware, and API contract boundary are included here. Remaining domain modules should be migrated one at a time behind the existing Next.js contract, with contract tests before switching the frontend base URL.
+The current route inventory is documented in `docs/API_MIGRATION_STATUS.md`. Remaining domain modules should be migrated one at a time behind the existing Next.js contract, with contract tests before switching the frontend base URL.

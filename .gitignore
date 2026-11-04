@@ -1,0 +1,23 @@
+# Environment and local configuration
+.env*
+
+# Go build output
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Coverage and profiling files
+coverage.out
+coverage.html
+
+# OS and editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo

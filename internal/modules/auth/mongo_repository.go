@@ -1,0 +1,81 @@
+package auth
+
+import (
+	"context"
+	"errors"
+	"strings"
+
+	"github.com/viharam/go-api-backend/internal/platform/mongodb"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+)
+
+type MongoRepository struct{ db *mongodb.Database }
+
+func NewMongoRepository(db *mongodb.Database) *MongoRepository { return &MongoRepository{db: db} }
+
+type mongoUser struct {
+	ID           bson.ObjectID `bson:"_id,omitempty"`
+	Name         string        `bson:"name"`
+	Email        string        `bson:"email"`
+	PasswordHash string        `bson:"passwordHash"`
+	Type         string        `bson:"type"`
+	PhoneNumber  string        `bson:"phoneNumber,omitempty"`
+	Photo        string        `bson:"photo,omitempty"`
+	Bio          string        `bson:"bio,omitempty"`
+	IsVerified   bool          `bson:"isVerified"`
+}
+
+func (r *MongoRepository) Create(ctx context.Context, input RegisterInput, passwordHash string) (User, error) {
+	email := strings.ToLower(strings.TrimSpace(input.Email))
+	var existing mongoUser
+	if err := r.db.Collection("users").FindOne(ctx, bson.M{"email": email}).Decode(&existing); err == nil {
+		return User{}, ErrEmailExists
+	} else if !errors.Is(err, mongo.ErrNoDocuments) {
+		return User{}, err
+	}
+	doc := mongoUser{Name: input.Name, Email: email, PasswordHash: passwordHash, Type: input.Type}
+	result, err := r.db.Collection("users").InsertOne(ctx, doc)
+	if err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			return User{}, ErrEmailExists
+		}
+		return User{}, err
+	}
+	if id, ok := result.InsertedID.(bson.ObjectID); ok {
+		doc.ID = id
+	}
+	return toUser(doc), nil
+}
+
+func (r *MongoRepository) FindByEmail(ctx context.Context, email string) (User, string, error) {
+	var doc mongoUser
+	err := r.db.Collection("users").FindOne(ctx, bson.M{"email": strings.ToLower(strings.TrimSpace(email))}).Decode(&doc)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return User{}, "", ErrNotFound
+	}
+	if err != nil {
+		return User{}, "", err
+	}
+	return toUser(doc), doc.PasswordHash, nil
+}
+
+func (r *MongoRepository) FindByID(ctx context.Context, id string) (User, error) {
+	objectID, err := bson.ObjectIDFromHex(id)
+	if err != nil {
+		return User{}, ErrNotFound
+	}
+	var doc mongoUser
+	err = r.db.Collection("users").FindOne(ctx, bson.M{"_id": objectID}).Decode(&doc)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return User{}, ErrNotFound
+	}
+	if err != nil {
+		return User{}, err
+	}
+	return toUser(doc), nil
+}
+
+func toUser(doc mongoUser) User {
+	return User{ID: doc.ID.Hex(), Name: doc.Name, Email: doc.Email, Role: doc.Type, PhoneNumber: doc.PhoneNumber, PhotoURL: doc.Photo, Bio: doc.Bio, IsVerified: doc.IsVerified}
+}

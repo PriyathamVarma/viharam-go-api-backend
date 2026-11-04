@@ -1,0 +1,121 @@
+package auth
+
+import (
+	"errors"
+	"os"
+
+	"github.com/gin-gonic/gin"
+	"github.com/viharam/go-api-backend/internal/middleware"
+	"github.com/viharam/go-api-backend/internal/platform/httpx"
+)
+
+type Handler struct{ service *Service }
+
+func NewHandler(service *Service) *Handler { return &Handler{service: service} }
+
+func (h *Handler) Register(c *gin.Context) {
+	var input RegisterInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		_ = httpx.Fail(c, 400, "invalid_request", "Invalid request body")
+		return
+	}
+	user, token, err := h.service.Register(c.Request.Context(), input)
+	if err != nil {
+		if errors.Is(err, ErrEmailExists) {
+			_ = httpx.Fail(c, 409, "email_exists", err.Error())
+			return
+		}
+		_ = httpx.Fail(c, 400, "invalid_request", err.Error())
+		return
+	}
+	setToken(c, token)
+	_ = httpx.Created(c, gin.H{"user": user, "token": token}, "Account created")
+}
+func (h *Handler) Login(c *gin.Context) {
+	var input LoginInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		_ = httpx.Fail(c, 400, "invalid_request", "Invalid request body")
+		return
+	}
+	user, token, err := h.service.Login(c.Request.Context(), input)
+	if err != nil {
+		_ = httpx.Fail(c, 401, "invalid_credentials", "Invalid email or password")
+		return
+	}
+	setToken(c, token)
+	_ = httpx.OK(c, gin.H{"user": user, "token": token}, "Signed in")
+}
+func (h *Handler) Me(c *gin.Context) {
+	claims := middleware.ClaimsFrom(c)
+	if claims == nil {
+		_ = httpx.Fail(c, 401, "unauthorized", "Authentication required")
+		return
+	}
+	user, err := h.service.repo.FindByID(c.Request.Context(), claims.UserID)
+	if err != nil {
+		_ = httpx.Fail(c, 404, "user_not_found", "User not found")
+		return
+	}
+	_ = httpx.OK(c, user, "Current user")
+}
+func (h *Handler) Logout(c *gin.Context) {
+	c.SetCookie("token", "", -1, "/", "", c.Request.URL.Scheme == "https", true)
+	_ = httpx.OK(c, nil, "Signed out")
+}
+
+func (h *Handler) DemoLogin(c *gin.Context) {
+	if os.Getenv("APP_ENV") == "production" || os.Getenv("NODE_ENV") == "production" {
+		_ = httpx.Fail(c, 404, "not_found", "Not found")
+		return
+	}
+	var body struct {
+		Role string `json:"role"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		_ = httpx.Fail(c, 400, "invalid_request", "Invalid request body")
+		return
+	}
+	accounts := map[string]RegisterInput{
+		"Traveller":  {Name: "Demo Traveller", Email: "demo.traveller@viharam.dev", Password: "Demo@Viharam2024", Type: "Traveller"},
+		"Host":       {Name: "Demo Host", Email: "demo.host@viharam.dev", Password: "Demo@Viharam2024", Type: "Host"},
+		"Ambassador": {Name: "Demo Ambassador", Email: "demo.ambassador@viharam.dev", Password: "Demo@Viharam2024", Type: "Ambassador"},
+		"Admin":      {Name: "Demo Admin", Email: "demo.admin@viharam.dev", Password: "Demo@Viharam2024", Type: "Admin"},
+	}
+	input, ok := accounts[body.Role]
+	if !ok {
+		_ = httpx.Fail(c, 400, "invalid_request", "Invalid demo role")
+		return
+	}
+	user, _, err := h.service.repo.FindByEmail(c.Request.Context(), input.Email)
+	if err != nil {
+		passwordHash, hashErr := hashPassword(input.Password)
+		if hashErr != nil {
+			_ = httpx.Fail(c, 500, "internal_error", "Failed to create demo account")
+			return
+		}
+		user, err = h.service.repo.Create(c.Request.Context(), input, passwordHash)
+		if err != nil {
+			_ = httpx.Fail(c, 500, "internal_error", "Failed to create demo account")
+			return
+		}
+	} else {
+		user, token, loginErr := h.service.Login(c.Request.Context(), LoginInput{Email: input.Email, Password: input.Password})
+		if loginErr != nil {
+			_ = httpx.Fail(c, 500, "internal_error", "Demo account password verification failed")
+			return
+		}
+		setToken(c, token)
+		_ = httpx.OK(c, gin.H{"id": user.ID, "name": user.Name, "email": user.Email, "type": user.Role, "token": token}, "Logged in as "+user.Name)
+		return
+	}
+	token, err := h.service.token(user)
+	if err != nil {
+		_ = httpx.Fail(c, 500, "internal_error", "Failed to create session")
+		return
+	}
+	setToken(c, token)
+	_ = httpx.OK(c, gin.H{"id": user.ID, "name": user.Name, "email": user.Email, "type": user.Role, "token": token}, "Logged in as "+user.Name)
+}
+func setToken(c *gin.Context, token string) {
+	c.SetCookie("token", token, 7*24*60*60, "/", "", c.Request.URL.Scheme == "https", true)
+}

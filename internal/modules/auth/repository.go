@@ -1,0 +1,53 @@
+package auth
+
+import (
+	"context"
+	"errors"
+	"strings"
+
+	"github.com/viharam/go-api-backend/internal/platform/database"
+)
+
+var ErrNotFound = errors.New("user not found")
+var ErrEmailExists = errors.New("email already registered")
+
+type UserRepository interface {
+	Create(context.Context, RegisterInput, string) (User, error)
+	FindByEmail(context.Context, string) (User, string, error)
+	FindByID(context.Context, string) (User, error)
+}
+
+type Repository struct{ db *database.Postgres }
+
+func NewRepository(db *database.Postgres) *Repository { return &Repository{db: db} }
+
+func (r *Repository) Create(ctx context.Context, input RegisterInput, passwordHash string) (User, error) {
+	var user User
+	err := r.db.Pool.QueryRow(ctx, `INSERT INTO users(name,email,password_hash,role) VALUES($1,$2,$3,$4) RETURNING id::text,name,email,role,COALESCE(phone_number,''),COALESCE(photo_url,''),COALESCE(bio,''),is_verified`, input.Name, strings.ToLower(strings.TrimSpace(input.Email)), passwordHash, input.Type).Scan(&user.ID, &user.Name, &user.Email, &user.Role, &user.PhoneNumber, &user.PhotoURL, &user.Bio, &user.IsVerified)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "users_email_lower_unique") {
+			return User{}, ErrEmailExists
+		}
+		return User{}, err
+	}
+	return user, nil
+}
+
+func (r *Repository) FindByEmail(ctx context.Context, email string) (User, string, error) {
+	var user User
+	var passwordHash string
+	err := r.db.Pool.QueryRow(ctx, `SELECT id::text,name,email,password_hash,role,COALESCE(phone_number,''),COALESCE(photo_url,''),COALESCE(bio,''),is_verified FROM users WHERE lower(email)=lower($1) AND status='active'`, strings.TrimSpace(email)).Scan(&user.ID, &user.Name, &user.Email, &passwordHash, &user.Role, &user.PhoneNumber, &user.PhotoURL, &user.Bio, &user.IsVerified)
+	if err != nil {
+		return User{}, "", ErrNotFound
+	}
+	return user, passwordHash, nil
+}
+
+func (r *Repository) FindByID(ctx context.Context, id string) (User, error) {
+	var user User
+	err := r.db.Pool.QueryRow(ctx, `SELECT id::text,name,email,role,COALESCE(phone_number,''),COALESCE(photo_url,''),COALESCE(bio,''),is_verified FROM users WHERE id=$1::uuid AND status='active'`, id).Scan(&user.ID, &user.Name, &user.Email, &user.Role, &user.PhoneNumber, &user.PhotoURL, &user.Bio, &user.IsVerified)
+	if err != nil {
+		return User{}, ErrNotFound
+	}
+	return user, nil
+}
