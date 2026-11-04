@@ -31,6 +31,7 @@ import (
 	"github.com/viharam/go-api-backend/internal/modules/supportpg"
 	"github.com/viharam/go-api-backend/internal/platform/database"
 	"github.com/viharam/go-api-backend/internal/platform/mongodb"
+	"github.com/viharam/go-api-backend/internal/platform/openapi"
 	"log/slog"
 )
 
@@ -463,6 +464,8 @@ func New(cfg *config.Config, log *slog.Logger, db *database.Postgres, mongoDB *m
 		v1.DELETE("/marketplace-cart", middleware.Auth(cfg.JWTSecret), cart.RootAction)
 		v1.POST("/email/booking-confirmation", middleware.Auth(cfg.JWTSecret), emailJobs.RootAction)
 	}
+
+	openapi.Register(app)
 
 	app.NoRoute(func(c *gin.Context) {
 		c.JSON(404, gin.H{"success": false, "message": "API endpoint not found"})

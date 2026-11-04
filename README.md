@@ -61,6 +61,13 @@ Apply migrations using the project migration command once it is added to the dep
 - `GET /ready` — PostgreSQL readiness
 - `GET /version` — build metadata
 
+## API documentation
+
+- `GET /swagger` — Swagger UI
+- `GET /swagger.json` — generated OpenAPI 3.0 document
+
+The OpenAPI document is generated from the routes registered by the running service, so it includes the active MongoDB compatibility or Supabase PostgreSQL API surface. Authenticated endpoints are documented with the JWT bearer scheme.
+
 ## Migration status
 
 The current route inventory is documented in `docs/API_MIGRATION_STATUS.md`. Remaining domain modules should be migrated one at a time behind the existing Next.js contract, with contract tests before switching the frontend base URL.
