@@ -27,6 +27,15 @@ type mongoUser struct {
 	IsVerified   bool          `bson:"isVerified"`
 }
 
+func (r *MongoRepository) Delete(ctx context.Context, id string) error {
+	objectID, err := bson.ObjectIDFromHex(id)
+	if err != nil { return ErrNotFound }
+	result, err := r.db.Collection("users").DeleteOne(ctx, bson.M{"_id": objectID})
+	if err != nil { return err }
+	if result.DeletedCount == 0 { return ErrNotFound }
+	return nil
+}
+
 func (r *MongoRepository) Create(ctx context.Context, input RegisterInput, passwordHash string) (User, error) {
 	email := strings.ToLower(strings.TrimSpace(input.Email))
 	var existing mongoUser

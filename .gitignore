@@ -21,3 +21,6 @@ coverage.html
 .vscode/
 *.swp
 *.swo
+
+# Local file uploads
+/uploads/

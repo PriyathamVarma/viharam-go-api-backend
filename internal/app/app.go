@@ -4,6 +4,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/viharam/go-api-backend/internal/config"
 	"github.com/viharam/go-api-backend/internal/middleware"
+	"github.com/viharam/go-api-backend/internal/modules/ambassadoractionspg"
+	"github.com/viharam/go-api-backend/internal/modules/ambassadorportalpg"
 	"github.com/viharam/go-api-backend/internal/modules/auth"
 	"github.com/viharam/go-api-backend/internal/modules/bookings"
 	"github.com/viharam/go-api-backend/internal/modules/bookingspg"
@@ -19,6 +21,7 @@ import (
 	"github.com/viharam/go-api-backend/internal/modules/experiencereviewspg"
 	"github.com/viharam/go-api-backend/internal/modules/experiences"
 	"github.com/viharam/go-api-backend/internal/modules/health"
+	"github.com/viharam/go-api-backend/internal/modules/hostportalpg"
 	"github.com/viharam/go-api-backend/internal/modules/hostprofilespg"
 	"github.com/viharam/go-api-backend/internal/modules/incidents"
 	"github.com/viharam/go-api-backend/internal/modules/incidentspg"
@@ -29,6 +32,7 @@ import (
 	"github.com/viharam/go-api-backend/internal/modules/simplecrud"
 	"github.com/viharam/go-api-backend/internal/modules/support"
 	"github.com/viharam/go-api-backend/internal/modules/supportpg"
+	"github.com/viharam/go-api-backend/internal/modules/uploads"
 	"github.com/viharam/go-api-backend/internal/platform/database"
 	"github.com/viharam/go-api-backend/internal/platform/mongodb"
 	"github.com/viharam/go-api-backend/internal/platform/openapi"
@@ -59,7 +63,14 @@ func New(cfg *config.Config, log *slog.Logger, db *database.Postgres, mongoDB *m
 	v1.POST("/auth/login", authHandler.Login)
 	v1.POST("/auth/demo-login", authHandler.DemoLogin)
 	v1.POST("/auth/logout", authHandler.Logout)
+	v1.DELETE("/auth/account", middleware.Auth(cfg.JWTSecret), authHandler.DeleteAccount)
 	v1.GET("/auth/me", middleware.Auth(cfg.JWTSecret), authHandler.Me)
+
+	// File uploads (multipart, images and PDFs) are stored on local disk and
+	// served read-only from /uploads; this works in both store modes.
+	uploadHandler := uploads.NewHandler(cfg.UploadDir, cfg.MaxUploadBytes, cfg.PublicBaseURL)
+	v1.POST("/uploads", middleware.Auth(cfg.JWTSecret), uploadHandler.Upload)
+	uploadHandler.Serve(app)
 
 	// Bookings, hosts, ambassadors, support, marketplace, trips, reviews, and
 	// admin modules are registered here as they are migrated from Next.js.
@@ -313,12 +324,27 @@ func New(cfg *config.Config, log *slog.Logger, db *database.Postgres, mongoDB *m
 		safety := documentpg.New(db, "travellersafeties", "profiles", "userId", false)
 		propertyReviewsPG := propertyreviewspg.NewHandler(db)
 
+		// Mobile portal read models (derived from bookings and assignments).
+		hostPortal := hostportalpg.NewHandler(db)
+		ambassadorPortal := ambassadorportalpg.NewHandler(db)
+		ambassadorActions := ambassadoractionspg.NewHandler(db, ambassadorAdmin.Update)
+		v1.GET("/host/listings", middleware.Auth(cfg.JWTSecret), middleware.RequireRole("Host"), hostPortal.Listings)
+		v1.GET("/host/earnings", middleware.Auth(cfg.JWTSecret), middleware.RequireRole("Host"), hostPortal.Earnings)
+		v1.GET("/ambassador/earnings", middleware.Auth(cfg.JWTSecret), middleware.RequireRole("Ambassador"), ambassadorPortal.Earnings)
+		v1.GET("/ambassador/hosts", middleware.Auth(cfg.JWTSecret), middleware.RequireRole("Ambassador"), ambassadorPortal.Hosts)
+		v1.GET("/ambassador-assignments/:id/guests", middleware.Auth(cfg.JWTSecret), ambassadorPortal.Guests)
+		v1.POST("/ambassador-assignments/:id/message-guests", middleware.Auth(cfg.JWTSecret), ambassadorPortal.MessageGuests)
+		v1.GET("/ambassador-assignments/:id/messages", middleware.Auth(cfg.JWTSecret), ambassadorPortal.Messages)
+		v1.POST("/ambassador/visits", middleware.Auth(cfg.JWTSecret), middleware.RequireRole("Ambassador"), ambassadorPortal.CreateVisit)
+		v1.GET("/ambassador/visits", middleware.Auth(cfg.JWTSecret), middleware.RequireRole("Ambassador"), ambassadorPortal.Visits)
+		v1.PATCH("/ambassador/visits/:id", middleware.Auth(cfg.JWTSecret), middleware.RequireRole("Ambassador"), ambassadorPortal.UpdateVisit)
+
 		v1.GET("/ambassadors", ambassadors.List)
 		v1.POST("/ambassadors", middleware.Auth(cfg.JWTSecret), ambassadorAdmin.Create)
 		v1.GET("/ambassadors/:id/availability", middleware.Auth(cfg.JWTSecret), ambassadors.Get)
-		v1.PATCH("/ambassadors/:id/availability", middleware.Auth(cfg.JWTSecret), func(c *gin.Context) { ambassadors.ActionNamed(c, "availability") })
+		v1.PATCH("/ambassadors/:id/availability", middleware.Auth(cfg.JWTSecret), ambassadorActions.Availability)
 		v1.GET("/ambassadors/:id", ambassadors.Get)
-		v1.PATCH("/ambassadors/:id", middleware.Auth(cfg.JWTSecret), ambassadorAdmin.Update)
+		v1.PATCH("/ambassadors/:id", middleware.Auth(cfg.JWTSecret), ambassadorActions.UpdateProfile)
 		v1.GET("/creator-profiles", middleware.Auth(cfg.JWTSecret), creatorProfiles.List)
 		v1.POST("/creator-profiles", middleware.Auth(cfg.JWTSecret), creatorProfiles.Create)
 		v1.GET("/creator-profiles/:id", middleware.Auth(cfg.JWTSecret), creatorProfiles.Get)
@@ -384,14 +410,14 @@ func New(cfg *config.Config, log *slog.Logger, db *database.Postgres, mongoDB *m
 		v1.GET("/ambassador-assignments", middleware.Auth(cfg.JWTSecret), assignments.List)
 		v1.POST("/ambassador-assignments/auto-assign", middleware.Auth(cfg.JWTSecret), assignments.Create)
 		v1.GET("/ambassador-assignments/:id", middleware.Auth(cfg.JWTSecret), assignments.Get)
-		v1.POST("/ambassador-assignments/:id/accept", middleware.Auth(cfg.JWTSecret), func(c *gin.Context) { assignments.ActionNamed(c, "accept") })
+		v1.POST("/ambassador-assignments/:id/accept", middleware.Auth(cfg.JWTSecret), ambassadorActions.Accept)
 		v1.PATCH("/ambassador-assignments/:id/checklist", middleware.Auth(cfg.JWTSecret), func(c *gin.Context) { assignments.ActionNamed(c, "checklist") })
 		v1.POST("/ambassador-assignments/:id/escalate", middleware.Auth(cfg.JWTSecret), func(c *gin.Context) { assignments.ActionNamed(c, "escalate") })
 		v1.PATCH("/ambassador-assignments/:id/escalate", middleware.Auth(cfg.JWTSecret), func(c *gin.Context) { assignments.ActionNamed(c, "escalate") })
-		v1.POST("/ambassador-assignments/:id/feedback", middleware.Auth(cfg.JWTSecret), func(c *gin.Context) { assignments.ActionNamed(c, "feedback") })
+		v1.POST("/ambassador-assignments/:id/feedback", middleware.Auth(cfg.JWTSecret), ambassadorActions.Feedback)
 		v1.POST("/ambassador-assignments/:id/override", middleware.Auth(cfg.JWTSecret), func(c *gin.Context) { assignments.ActionNamed(c, "override") })
-		v1.POST("/ambassador-assignments/:id/proof", middleware.Auth(cfg.JWTSecret), func(c *gin.Context) { assignments.ActionNamed(c, "proof") })
-		v1.POST("/ambassador-assignments/:id/reject", middleware.Auth(cfg.JWTSecret), func(c *gin.Context) { assignments.ActionNamed(c, "reject") })
+		v1.POST("/ambassador-assignments/:id/proof", middleware.Auth(cfg.JWTSecret), ambassadorActions.Proof)
+		v1.POST("/ambassador-assignments/:id/reject", middleware.Auth(cfg.JWTSecret), ambassadorActions.Reject)
 		v1.GET("/audit-logs", middleware.Auth(cfg.JWTSecret), auditLogs.List)
 		v1.GET("/traveller-safety", middleware.Auth(cfg.JWTSecret), safety.List)
 		v1.POST("/traveller-safety", middleware.Auth(cfg.JWTSecret), safety.Create)

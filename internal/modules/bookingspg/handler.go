@@ -1,6 +1,7 @@
 package bookingspg
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/viharam/go-api-backend/internal/middleware"
+	"github.com/viharam/go-api-backend/internal/modules/portalcalc"
 	"github.com/viharam/go-api-backend/internal/platform/database"
 	"github.com/viharam/go-api-backend/internal/platform/httpx"
 )
@@ -18,7 +20,7 @@ type Handler struct{ db *database.Postgres }
 
 func NewHandler(db *database.Postgres) *Handler { return &Handler{db: db} }
 
-const bookingSelect = `SELECT b.id::text,b.traveler_id::text,b.property_id::text,b.host_id::text,b.check_in::text,b.check_out::text,b.guests,b.total_price_paise,b.price_per_night_paise,b.nights,b.status,COALESCE(b.notes,''),b.created_at::text,b.updated_at::text FROM property_bookings b`
+const bookingSelect = `SELECT b.id::text,b.traveler_id::text,b.property_id::text,b.host_id::text,b.check_in::text,b.check_out::text,b.guests,b.total_price_paise,b.price_per_night_paise,b.nights,b.status,COALESCE(b.notes,''),b.created_at::text,b.updated_at::text,COALESCE(p.name,''),COALESCE(p.city,''),COALESCE(p.address,''),COALESCE(p.image,''),COALESCE(p.images,'[]'::jsonb) FROM property_bookings b LEFT JOIN properties p ON p.id=b.property_id`
 
 func (h *Handler) List(c *gin.Context) {
 	claims := middleware.ClaimsFrom(c)
@@ -36,18 +38,18 @@ func (h *Handler) List(c *gin.Context) {
 		if claims.Role == "Host" {
 			column = "host_id"
 		}
-		where = append(where, column+"=$1::uuid")
+		where = append(where, "b."+column+"=$1::uuid")
 		args = append(args, claims.UserID)
 	}
 	if status := strings.TrimSpace(c.Query("status")); status != "" {
-		where = append(where, fmt.Sprintf("status=$%d", len(args)+1))
+		where = append(where, fmt.Sprintf("b.status=$%d", len(args)+1))
 		args = append(args, status)
 	}
 	query := bookingSelect
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
-	query += " ORDER BY created_at DESC"
+	query += " ORDER BY b.created_at DESC"
 	rows, err := h.db.Pool.Query(c, query, args...)
 	if err != nil {
 		_ = httpx.Fail(c, 500, "database_error", "Failed to fetch bookings")
@@ -215,12 +217,22 @@ func (h *Handler) get(c *gin.Context, id string) (map[string]any, error) {
 }
 func scan(row pgx.Row) (map[string]any, error) {
 	var id, traveler, property, host, checkIn, checkOut, status, notes, created, updated string
+	var title, city, address, image string
+	var images []byte
 	var guests, nights int
 	var total, price int64
-	if err := row.Scan(&id, &traveler, &property, &host, &checkIn, &checkOut, &guests, &total, &price, &nights, &status, &notes, &created, &updated); err != nil {
+	if err := row.Scan(&id, &traveler, &property, &host, &checkIn, &checkOut, &guests, &total, &price, &nights, &status, &notes, &created, &updated, &title, &city, &address, &image, &images); err != nil {
 		return nil, err
 	}
-	return map[string]any{"_id": id, "travelerId": traveler, "propertyId": property, "hostId": host, "checkIn": checkIn, "checkOut": checkOut, "guests": guests, "totalPrice": float64(total) / 100, "pricePerNight": float64(price) / 100, "nights": nights, "status": status, "notes": notes, "createdAt": created, "updatedAt": updated}, nil
+	photo := image
+	if photo == "" {
+		var decoded any
+		if json.Unmarshal(images, &decoded) == nil {
+			photo = portalcalc.FirstPhoto(decoded)
+		}
+	}
+	return map[string]any{"_id": id, "travelerId": traveler, "propertyId": property, "hostId": host, "checkIn": checkIn, "checkOut": checkOut, "guests": guests, "totalPrice": float64(total) / 100, "pricePerNight": float64(price) / 100, "nights": nights, "status": status, "notes": notes, "createdAt": created, "updatedAt": updated,
+		"title": title, "experienceTitle": title, "date": checkIn, "startTime": "", "meetingPoint": address, "city": city, "photo": photo, "guestCount": guests}, nil
 }
 func parseDate(v string) (time.Time, error) {
 	if t, err := time.Parse(time.RFC3339, v); err == nil {

@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/viharam/go-api-backend/internal/middleware"
+	"github.com/viharam/go-api-backend/internal/modules/portalcalc"
 	"github.com/viharam/go-api-backend/internal/platform/database"
 	"github.com/viharam/go-api-backend/internal/platform/httpx"
 )
@@ -404,6 +405,9 @@ func validateCreate(domain string, payload map[string]any) string {
 		return ""
 	}
 	switch domain {
+	case "bulkbookings", "customexperiencerequests":
+		// preferredDate (YYYY-MM-DD) and timingNote (<=200) are optional.
+		return portalcalc.NormalizeTiming(payload)
 	case "hostprofiles":
 		if field := missing("displayName", "hostType", "phone"); field != "" {
 			return field + " is required"

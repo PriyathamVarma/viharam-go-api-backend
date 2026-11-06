@@ -304,6 +304,11 @@ func (h *Handler) action(c *gin.Context, action string) {
 		}
 	} else if field != "" {
 		raw, _ := json.Marshal(b)
+		if field == "safety_checklist" {
+			var current []byte
+			_ = h.db.Pool.QueryRow(c, "SELECT COALESCE(safety_checklist,'[]'::jsonb) FROM host_profiles WHERE id=$1::uuid", c.Param("id")).Scan(&current)
+			raw = mergeChecklist(current, b)
+		}
 		step := 0
 		if field == "kyc" {
 			step = 2
@@ -384,3 +389,35 @@ func allowed(v string, a ...string) bool {
 func itoa(v int) string          { return fmt.Sprint(v) }
 func jsonString(v string) string { b, _ := json.Marshal(v); return string(b) }
 func emptyObject(v any) bool     { m, ok := v.(map[string]any); return !ok || len(m) == 0 }
+
+// mergeChecklist keeps the safety checklist an array of {key,isCompleted}.
+// The body may carry a full "items" array (mobile) or a single {key,isCompleted} toggle (web).
+func mergeChecklist(current []byte, body map[string]any) []byte {
+	var list []map[string]any
+	_ = json.Unmarshal(current, &list)
+	set := func(key string, done bool) {
+		for _, it := range list {
+			if text(it["key"]) == key {
+				it["isCompleted"] = done
+				return
+			}
+		}
+		list = append(list, map[string]any{"key": key, "isCompleted": done})
+	}
+	if items, ok := body["items"].([]any); ok {
+		for _, raw := range items {
+			if it, ok := raw.(map[string]any); ok && text(it["key"]) != "" {
+				done, _ := it["isCompleted"].(bool)
+				set(text(it["key"]), done)
+			}
+		}
+	} else if key := text(body["key"]); key != "" {
+		done, _ := body["isCompleted"].(bool)
+		set(key, done)
+	}
+	out, err := json.Marshal(list)
+	if err != nil || list == nil {
+		return []byte("[]")
+	}
+	return out
+}

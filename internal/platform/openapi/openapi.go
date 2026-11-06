@@ -67,6 +67,32 @@ func Document(routes gin.RoutesInfo) map[string]any {
 				},
 			}
 		}
+		if summary, ok := summaries[method+" "+path]; ok {
+			operation["summary"] = summary
+		}
+		if method == "post" && path == "/api/v1/uploads" {
+			operation["requestBody"] = map[string]any{
+				"required": true,
+				"content": map[string]any{
+					"multipart/form-data": map[string]any{
+						"schema": map[string]any{
+							"type":     "object",
+							"required": []string{"file"},
+							"properties": map[string]any{
+								"file": map[string]any{"type": "string", "format": "binary", "description": "JPEG, PNG, WebP or PDF, up to MAX_UPLOAD_BYTES (default 10 MB)"},
+							},
+						},
+					},
+				},
+			}
+			operation["responses"] = map[string]any{
+				"201": map[string]any{"description": "Stored. data = {url, path, name, mimeType, size}"},
+				"400": map[string]any{"description": "No file field"},
+				"401": map[string]any{"description": "Authentication required"},
+				"413": map[string]any{"description": "File too large"},
+				"415": map[string]any{"description": "Unsupported file type"},
+			}
+		}
 		operations[method] = operation
 	}
 
@@ -102,6 +128,22 @@ func Document(routes gin.RoutesInfo) map[string]any {
 			},
 		},
 	}
+}
+
+// summaries gives the mobile read-model endpoints a meaningful description;
+// see docs/MOBILE_API_CONTRACT.md for their JSON shapes.
+var summaries = map[string]string{
+	"get /api/v1/host/listings":                               "The signed-in host's properties and experiences (status, price, bookingCount, photo)",
+	"get /api/v1/host/earnings":                               "Host earnings derived from confirmed/completed bookings (15% platform commission, payouts derived)",
+	"get /api/v1/ambassador/earnings":                         "Ambassador earnings derived from completed assignments",
+	"get /api/v1/ambassador/hosts":                            "Host families in the ambassador's region",
+	"get /api/v1/ambassador-assignments/{id}/guests":          "Guests of the assignment's booking (assigned ambassador or admin only)",
+	"post /api/v1/ambassador-assignments/{id}/message-guests": "Send a message (1-1000 chars) to the guests of an assignment (assigned ambassador or admin)",
+	"get /api/v1/ambassador-assignments/{id}/messages":        "Messages sent to the guests of an assignment",
+	"post /api/v1/ambassador/visits":                          "Schedule a visit to a host family (ambassador)",
+	"get /api/v1/ambassador/visits":                           "The ambassador's scheduled host visits, ascending by date",
+	"patch /api/v1/ambassador/visits/{id}":                    "Mark an ambassador visit completed or cancelled",
+	"post /api/v1/uploads":                                    "Upload an image or PDF (multipart/form-data, field \"file\"); returns its public URL",
 }
 
 func openAPIPath(path string) string {

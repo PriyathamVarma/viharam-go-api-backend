@@ -63,6 +63,18 @@ func (h *Handler) Logout(c *gin.Context) {
 	_ = httpx.OK(c, nil, "Signed out")
 }
 
+func (h *Handler) DeleteAccount(c *gin.Context) {
+	claims := middleware.ClaimsFrom(c)
+	if claims == nil { _ = httpx.Fail(c, 401, "unauthorized", "Authentication required"); return }
+	if err := h.service.repo.Delete(c.Request.Context(), claims.UserID); err != nil {
+		if errors.Is(err, ErrNotFound) { _ = httpx.Fail(c, 404, "user_not_found", "User not found"); return }
+		_ = httpx.Fail(c, 500, "internal_error", "Could not delete account")
+		return
+	}
+	c.SetCookie("token", "", -1, "/", "", c.Request.URL.Scheme == "https", true)
+	_ = httpx.OK(c, nil, "Account deleted")
+}
+
 func (h *Handler) DemoLogin(c *gin.Context) {
 	if os.Getenv("APP_ENV") == "production" || os.Getenv("NODE_ENV") == "production" {
 		_ = httpx.Fail(c, 404, "not_found", "Not found")

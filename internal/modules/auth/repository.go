@@ -16,6 +16,14 @@ type UserRepository interface {
 	EnsureDemo(context.Context, RegisterInput, string) (User, error)
 	FindByEmail(context.Context, string) (User, string, error)
 	FindByID(context.Context, string) (User, error)
+	Delete(context.Context, string) error
+}
+
+func (r *Repository) Delete(ctx context.Context, id string) error {
+	command, err := r.db.Pool.Exec(ctx, `UPDATE users SET status='deleted', updated_at=now() WHERE id=$1::uuid AND status='active'`, id)
+	if err != nil { return err }
+	if command.RowsAffected() == 0 { return ErrNotFound }
+	return nil
 }
 
 type Repository struct{ db *database.Postgres }

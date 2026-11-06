@@ -1,6 +1,7 @@
 package experiencebookingspg
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"github.com/viharam/go-api-backend/internal/middleware"
+	"github.com/viharam/go-api-backend/internal/modules/portalcalc"
 	"github.com/viharam/go-api-backend/internal/platform/database"
 	"github.com/viharam/go-api-backend/internal/platform/httpx"
 )
@@ -16,10 +18,24 @@ type Handler struct{ db *database.Postgres }
 
 func NewHandler(db *database.Postgres) *Handler { return &Handler{db: db} }
 
+// Slots handles GET /experience-slots. experienceId is required; month
+// (YYYY-MM) optionally limits the result to that calendar month. The slots
+// are returned as {slots, total}, the shape the web app reads.
 func (h *Handler) Slots(c *gin.Context) {
 	q := `SELECT s.id::text,s.experience_id::text,s.date::text,s.start_time::text,s.end_time::text,s.capacity,s.booked_count,s.locked_count,s.is_blocked
-FROM experience_slots s WHERE s.experience_id=$1::uuid ORDER BY s.date,s.start_time`
-	rows, err := h.db.Pool.Query(c, q, c.Query("experienceId"))
+FROM experience_slots s WHERE s.experience_id=$1::uuid`
+	args := []any{c.Query("experienceId")}
+	if month := c.Query("month"); month != "" {
+		start, end, ok := portalcalc.MonthBounds(month)
+		if !ok {
+			_ = httpx.Fail(c, 400, "invalid_request", "month must be YYYY-MM")
+			return
+		}
+		q += " AND s.date>=$2::date AND s.date<$3::date"
+		args = append(args, start, end)
+	}
+	q += " ORDER BY s.date,s.start_time"
+	rows, err := h.db.Pool.Query(c, q, args...)
 	if err != nil {
 		_ = httpx.Fail(c, 400, "invalid_request", "experienceId is required")
 		return
@@ -36,7 +52,7 @@ FROM experience_slots s WHERE s.experience_id=$1::uuid ORDER BY s.date,s.start_t
 		}
 		items = append(items, map[string]any{"_id": id, "experienceId": experience, "date": date, "startTime": start, "endTime": end, "capacity": capacity, "bookedCount": booked, "lockedCount": locked, "isBlocked": blocked, "availableSpots": capacity - booked - locked})
 	}
-	_ = httpx.OK(c, items, "")
+	_ = httpx.OK(c, gin.H{"slots": items, "total": len(items)}, "")
 }
 
 func (h *Handler) SaveSlot(c *gin.Context)   { h.writeSlot(c, false) }
@@ -193,13 +209,13 @@ func (h *Handler) List(c *gin.Context) {
 		_ = httpx.Fail(c, 401, "unauthorized", "Authentication required")
 		return
 	}
-	q := `SELECT id::text,booking_ref,experience_id::text,slot_id::text,traveler_id::text,traveler_name,traveler_email,traveler_phone,guests,total_paise,status,payment_status,created_at::text FROM experience_bookings`
+	q := bookingDetailSelect
 	args := []any{}
 	if claims.Role != "Admin" && claims.Role != "SuperAdmin" {
-		q += " WHERE traveler_id=$1::uuid"
+		q += " WHERE b.traveler_id=$1::uuid"
 		args = append(args, claims.UserID)
 	}
-	q += " ORDER BY created_at DESC"
+	q += " ORDER BY b.created_at DESC"
 	rows, err := h.db.Pool.Query(c, q, args...)
 	if err != nil {
 		_ = httpx.Fail(c, 500, "database_error", "Failed to fetch experience bookings")
@@ -208,7 +224,7 @@ func (h *Handler) List(c *gin.Context) {
 	defer rows.Close()
 	items := make([]map[string]any, 0)
 	for rows.Next() {
-		item, e := scanBooking(rows)
+		item, e := scanBookingDetail(rows)
 		if e != nil {
 			_ = httpx.Fail(c, 500, "database_error", "Failed to decode experience bookings")
 			return
@@ -282,7 +298,7 @@ func (h *Handler) getWith(c *gin.Context, id string) {
 		_ = httpx.Fail(c, 401, "unauthorized", "Authentication required")
 		return
 	}
-	item, err := scanBooking(h.db.Pool.QueryRow(c, `SELECT id::text,booking_ref,experience_id::text,slot_id::text,traveler_id::text,traveler_name,traveler_email,traveler_phone,guests,total_paise,status,payment_status,created_at::text FROM experience_bookings WHERE id=$1::uuid`, id))
+	item, err := scanBookingDetail(h.db.Pool.QueryRow(c, bookingDetailSelect+" WHERE b.id=$1::uuid", id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		_ = httpx.Fail(c, 404, "not_found", "Experience booking not found")
 		return
@@ -298,7 +314,75 @@ func (h *Handler) getWith(c *gin.Context, id string) {
 	_ = httpx.OK(c, item, "")
 }
 
-func (h *Handler) Cancel(c *gin.Context) { h.transition(c, "cancelled") }
+// Cancel handles POST /experience-bookings/:id/cancel for the booking's
+// traveller or an admin. It stores the optional reason and the cancellation
+// time and gives the booked seats back to the slot. Cancelling an already
+// cancelled booking is a no-op; completed or refunded bookings return 409.
+// No refund is calculated or recorded here.
+func (h *Handler) Cancel(c *gin.Context) {
+	claims := middleware.ClaimsFrom(c)
+	if claims == nil {
+		_ = httpx.Fail(c, 401, "unauthorized", "Authentication required")
+		return
+	}
+	var body map[string]any
+	if c.ShouldBindJSON(&body) != nil {
+		body = map[string]any{}
+	}
+	tx, err := h.db.Pool.Begin(c)
+	if err != nil {
+		_ = httpx.Fail(c, 500, "database_error", "Could not start cancellation")
+		return
+	}
+	defer tx.Rollback(c)
+	var traveler, slot, status string
+	var guests int
+	var cancelledAt *time.Time
+	err = tx.QueryRow(c, "SELECT traveler_id::text,slot_id::text,guests,status,cancelled_at FROM experience_bookings WHERE id=$1::uuid FOR UPDATE", c.Param("id")).Scan(&traveler, &slot, &guests, &status, &cancelledAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		_ = httpx.Fail(c, 404, "not_found", "Experience booking not found")
+		return
+	}
+	if err != nil {
+		_ = httpx.Fail(c, 400, "invalid_id", "Invalid booking ID")
+		return
+	}
+	if claims.Role != "Admin" && claims.Role != "SuperAdmin" && traveler != claims.UserID {
+		_ = httpx.Fail(c, 403, "forbidden", "Forbidden")
+		return
+	}
+	switch status {
+	case "cancelled":
+		_ = httpx.OK(c, cancelResponse(cancelledAt), "Booking updated")
+		return
+	case "completed", "refunded":
+		_ = httpx.Fail(c, 409, "invalid_state", "A "+status+" booking cannot be cancelled")
+		return
+	}
+	var cancelled time.Time
+	if err := tx.QueryRow(c, "UPDATE experience_bookings SET status='cancelled',cancellation_reason=NULLIF($1,''),cancelled_at=now(),updated_at=now() WHERE id=$2::uuid RETURNING cancelled_at", portalcalc.CancelReason(text(body["reason"])), c.Param("id")).Scan(&cancelled); err != nil {
+		_ = httpx.Fail(c, 500, "database_error", "Could not cancel booking")
+		return
+	}
+	if _, err := tx.Exec(c, "UPDATE experience_slots SET booked_count=GREATEST(0,booked_count-$1),updated_at=now() WHERE id=$2::uuid", guests, slot); err != nil {
+		_ = httpx.Fail(c, 500, "database_error", "Could not release slot capacity")
+		return
+	}
+	if err := tx.Commit(c); err != nil {
+		_ = httpx.Fail(c, 500, "database_error", "Could not commit cancellation")
+		return
+	}
+	_ = httpx.OK(c, cancelResponse(&cancelled), "Booking updated")
+}
+
+func cancelResponse(cancelledAt *time.Time) gin.H {
+	out := gin.H{"status": "cancelled"}
+	if cancelledAt != nil {
+		out["cancelledAt"] = cancelledAt.UTC().Format(time.RFC3339)
+	}
+	return out
+}
+
 func (h *Handler) Status(c *gin.Context) {
 	var b map[string]any
 	_ = c.ShouldBindJSON(&b)
@@ -404,11 +488,45 @@ func (h *Handler) transition(c *gin.Context, status string) {
 		_ = httpx.Fail(c, 403, "forbidden", "Forbidden")
 		return
 	}
-	if _, err := h.db.Pool.Exec(c, "UPDATE experience_bookings SET status=$1, cancellation_reason=CASE WHEN $1='cancelled' THEN $2 ELSE cancellation_reason END, cancelled_at=CASE WHEN $1='cancelled' THEN now() ELSE cancelled_at END, updated_at=now() WHERE id=$3::uuid", status, textFromBody(c, "reason"), c.Param("id")); err != nil {
+	if _, err := h.db.Pool.Exec(c, "UPDATE experience_bookings SET status=$1, cancelled_at=CASE WHEN $1='cancelled' THEN now() ELSE cancelled_at END, updated_at=now() WHERE id=$2::uuid", status, c.Param("id")); err != nil {
 		_ = httpx.Fail(c, 500, "database_error", "Could not update booking")
 		return
 	}
 	_ = httpx.OK(c, gin.H{"status": status}, "Booking updated")
+}
+
+// bookingDetailSelect joins the experience and slot so list/detail responses
+// carry display text. Both foreign keys are NOT NULL, LEFT JOIN + COALESCE
+// only guards against hand-edited data.
+const bookingDetailSelect = `SELECT b.id::text,b.booking_ref,b.experience_id::text,b.slot_id::text,b.traveler_id::text,b.traveler_name,b.traveler_email,b.traveler_phone,b.guests,b.total_paise,b.status,b.payment_status,b.created_at::text,
+COALESCE(e.title,''),COALESCE(e.city,''),COALESCE(e.content,'{}'::jsonb),COALESCE(s.date::text,''),COALESCE(to_char(s.start_time,'HH24:MI'),'')
+FROM experience_bookings b LEFT JOIN experiences e ON e.id=b.experience_id LEFT JOIN experience_slots s ON s.id=b.slot_id`
+
+// scanBookingDetail scans bookingDetailSelect. On top of the scanBooking fields
+// it adds title, experienceTitle, date, startTime, meetingPoint, city, photo
+// and guestCount (meetingPoint comes from experiences.content, "" if absent).
+func scanBookingDetail(row pgx.Row) (map[string]any, error) {
+	var id, ref, exp, slot, traveler, name, email, phone, created string
+	var title, city, date, start string
+	var content []byte
+	var guests int
+	var total int64
+	var status, payment string
+	err := row.Scan(&id, &ref, &exp, &slot, &traveler, &name, &email, &phone, &guests, &total, &status, &payment, &created, &title, &city, &content, &date, &start)
+	if err != nil {
+		return nil, err
+	}
+	meta := map[string]any{}
+	_ = json.Unmarshal(content, &meta)
+	meeting := ""
+	for _, k := range []string{"meetingPoint", "meeting_point", "meetingLocation"} {
+		if v := portalcalc.Text(meta[k]); v != "" {
+			meeting = v
+			break
+		}
+	}
+	return map[string]any{"_id": id, "bookingRef": ref, "experienceId": exp, "slotId": slot, "travelerId": traveler, "travelerName": name, "travelerEmail": email, "travelerPhone": phone, "guests": guests, "total": float64(total) / 100, "status": status, "paymentStatus": payment, "createdAt": created,
+		"title": title, "experienceTitle": title, "date": date, "startTime": start, "meetingPoint": meeting, "city": city, "photo": portalcalc.PhotoFromMap(meta), "guestCount": guests}, nil
 }
 
 func scanBooking(row pgx.Row) (map[string]any, error) {
@@ -440,4 +558,3 @@ func nullableBool(v any) any {
 	}
 	return nil
 }
-func textFromBody(c *gin.Context, key string) string { return "" }

@@ -25,6 +25,9 @@ type Config struct {
 	LogLevel           slog.Level
 	MigrateOnStartup   bool
 	ShutdownTimeout    time.Duration
+	UploadDir          string
+	MaxUploadBytes     int64
+	PublicBaseURL      string
 }
 
 func Load() (*Config, error) {
@@ -44,6 +47,9 @@ func Load() (*Config, error) {
 		LogLevel:           parseLevel(getString("LOG_LEVEL", "info")),
 		MigrateOnStartup:   getBool("MIGRATE_ON_STARTUP", false),
 		ShutdownTimeout:    getDuration("SHUTDOWN_TIMEOUT", 10*time.Second),
+		UploadDir:          getString("UPLOAD_DIR", "./uploads"),
+		MaxUploadBytes:     int64(getInt("MAX_UPLOAD_BYTES", 10<<20)),
+		PublicBaseURL:      strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_BASE_URL")), "/"),
 	}
 	if c.DatabaseURL == "" && c.MongoURI == "" {
 		return nil, errors.New("SUPABASE_DB_URL/DATABASE_URL or MONGODB_URI is required")
