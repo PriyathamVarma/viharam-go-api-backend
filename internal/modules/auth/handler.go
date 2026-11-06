@@ -86,26 +86,14 @@ func (h *Handler) DemoLogin(c *gin.Context) {
 		_ = httpx.Fail(c, 400, "invalid_request", "Invalid demo role")
 		return
 	}
-	user, _, err := h.service.repo.FindByEmail(c.Request.Context(), input.Email)
+	passwordHash, err := hashPassword(input.Password)
 	if err != nil {
-		passwordHash, hashErr := hashPassword(input.Password)
-		if hashErr != nil {
-			_ = httpx.Fail(c, 500, "internal_error", "Failed to create demo account")
-			return
-		}
-		user, err = h.service.repo.Create(c.Request.Context(), input, passwordHash)
-		if err != nil {
-			_ = httpx.Fail(c, 500, "internal_error", "Failed to create demo account")
-			return
-		}
-	} else {
-		user, token, loginErr := h.service.Login(c.Request.Context(), LoginInput{Email: input.Email, Password: input.Password})
-		if loginErr != nil {
-			_ = httpx.Fail(c, 500, "internal_error", "Demo account password verification failed")
-			return
-		}
-		setToken(c, token)
-		_ = httpx.OK(c, gin.H{"id": user.ID, "name": user.Name, "email": user.Email, "type": user.Role, "token": token}, "Logged in as "+user.Name)
+		_ = httpx.Fail(c, 500, "internal_error", "Failed to create demo account")
+		return
+	}
+	user, err := h.service.repo.EnsureDemo(c.Request.Context(), input, passwordHash)
+	if err != nil {
+		_ = httpx.Fail(c, 500, "internal_error", "Failed to create demo account")
 		return
 	}
 	token, err := h.service.token(user)

@@ -53,6 +53,11 @@ go mod download
 go run ./cmd/api
 ```
 
+Start this service before the Next.js app. The web app forwards `/api/v1/*`
+to `GO_API_URL`; there are no Next.js API handlers serving as a fallback.
+To verify the complete route contract from the web project, run
+`npm run verify:api` in `../viharam`.
+
 Apply migrations using the project migration command once it is added to the deployment pipeline. The first migration is intentionally reviewable SQL rather than an ORM-generated schema.
 
 ## Health endpoints

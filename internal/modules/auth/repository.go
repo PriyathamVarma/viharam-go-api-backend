@@ -13,6 +13,7 @@ var ErrEmailExists = errors.New("email already registered")
 
 type UserRepository interface {
 	Create(context.Context, RegisterInput, string) (User, error)
+	EnsureDemo(context.Context, RegisterInput, string) (User, error)
 	FindByEmail(context.Context, string) (User, string, error)
 	FindByID(context.Context, string) (User, error)
 }
@@ -28,6 +29,28 @@ func (r *Repository) Create(ctx context.Context, input RegisterInput, passwordHa
 		if strings.Contains(strings.ToLower(err.Error()), "users_email_lower_unique") {
 			return User{}, ErrEmailExists
 		}
+		return User{}, err
+	}
+	return user, nil
+}
+
+// EnsureDemo creates or repairs a development demo account. It is separate
+// from Create so a stale account cannot break a demo shortcut.
+func (r *Repository) EnsureDemo(ctx context.Context, input RegisterInput, passwordHash string) (User, error) {
+	var user User
+	err := r.db.Pool.QueryRow(ctx, `
+		INSERT INTO users(name,email,password_hash,role,status)
+		VALUES($1,$2,$3,$4,'active')
+		ON CONFLICT (lower(email)) DO UPDATE SET
+			name=EXCLUDED.name,
+			password_hash=EXCLUDED.password_hash,
+			role=EXCLUDED.role,
+			status='active',
+			updated_at=now()
+		RETURNING id::text,name,email,role,COALESCE(phone_number,''),COALESCE(photo_url,''),COALESCE(bio,''),is_verified`,
+		input.Name, strings.ToLower(strings.TrimSpace(input.Email)), passwordHash, input.Type,
+	).Scan(&user.ID, &user.Name, &user.Email, &user.Role, &user.PhoneNumber, &user.PhotoURL, &user.Bio, &user.IsVerified)
+	if err != nil {
 		return User{}, err
 	}
 	return user, nil

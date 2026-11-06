@@ -8,6 +8,7 @@ import (
 	"github.com/viharam/go-api-backend/internal/platform/mongodb"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 type MongoRepository struct{ db *mongodb.Database }
@@ -46,6 +47,19 @@ func (r *MongoRepository) Create(ctx context.Context, input RegisterInput, passw
 		doc.ID = id
 	}
 	return toUser(doc), nil
+}
+
+func (r *MongoRepository) EnsureDemo(ctx context.Context, input RegisterInput, passwordHash string) (User, error) {
+	email := strings.ToLower(strings.TrimSpace(input.Email))
+	filter := bson.M{"email": email}
+	update := bson.M{"$set": bson.M{
+		"name": input.Name, "email": email, "passwordHash": passwordHash, "type": input.Type,
+	}}
+	if _, err := r.db.Collection("users").UpdateOne(ctx, filter, update, options.UpdateOne().SetUpsert(true)); err != nil {
+		return User{}, err
+	}
+	user, _, err := r.FindByEmail(ctx, email)
+	return user, err
 }
 
 func (r *MongoRepository) FindByEmail(ctx context.Context, email string) (User, string, error) {
