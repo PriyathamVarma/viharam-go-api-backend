@@ -68,7 +68,7 @@ func New(cfg *config.Config, log *slog.Logger, db *database.Postgres, mongoDB *m
 
 	// File uploads use durable Supabase Storage in production. Local disk is a
 	// development/test fallback when storage credentials are not configured.
-	uploadHandler := uploads.NewHandlerWithSupabase(cfg.UploadDir, cfg.MaxUploadBytes, cfg.PublicBaseURL, cfg.SupabaseURL, cfg.SupabaseServiceKey, cfg.SupabaseBucket)
+	uploadHandler := uploads.NewHandlerWithSupabaseBuckets(cfg.UploadDir, cfg.MaxUploadBytes, cfg.PublicBaseURL, cfg.SupabaseURL, cfg.SupabaseServiceKey, cfg.SupabasePublicBucket, cfg.SupabasePrivateBucket)
 	v1.POST("/uploads", middleware.Auth(cfg.JWTSecret), uploadHandler.Upload)
 	uploadHandler.Serve(app)
 

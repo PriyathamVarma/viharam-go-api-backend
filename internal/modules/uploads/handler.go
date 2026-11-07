@@ -55,13 +55,20 @@ func NewHandler(dir string, maxBytes int64, baseURL string) *Handler {
 // NewHandlerWithSupabase adds durable object storage without changing the
 // local/test constructor used by the upload unit tests.
 func NewHandlerWithSupabase(dir string, maxBytes int64, baseURL, supabaseURL, serviceKey, bucket string) *Handler {
+	return NewHandlerWithSupabaseBuckets(dir, maxBytes, baseURL, supabaseURL, serviceKey, bucket, bucket)
+}
+
+// NewHandlerWithSupabaseBuckets configures separate public listing-photo and
+// private document buckets. Private uploads return short-lived signed URLs.
+func NewHandlerWithSupabaseBuckets(dir string, maxBytes int64, baseURL, supabaseURL, serviceKey, publicBucket, privateBucket string) *Handler {
 	h := NewHandler(dir, maxBytes, baseURL)
-	if strings.TrimSpace(supabaseURL) != "" && strings.TrimSpace(serviceKey) != "" && strings.TrimSpace(bucket) != "" {
+	if strings.TrimSpace(supabaseURL) != "" && strings.TrimSpace(serviceKey) != "" && strings.TrimSpace(publicBucket) != "" && strings.TrimSpace(privateBucket) != "" {
 		h.storage = &supabaseStorage{
-			baseURL: strings.TrimRight(strings.TrimSpace(supabaseURL), "/"),
-			serviceKey: strings.TrimSpace(serviceKey),
-			bucket: strings.TrimSpace(bucket),
-			client: &http.Client{Timeout: 45 * time.Second},
+			baseURL:       strings.TrimRight(strings.TrimSpace(supabaseURL), "/"),
+			serviceKey:    strings.TrimSpace(serviceKey),
+			publicBucket:  strings.TrimSpace(publicBucket),
+			privateBucket: strings.TrimSpace(privateBucket),
+			client:        &http.Client{Timeout: 45 * time.Second},
 		}
 	}
 	return h
@@ -143,17 +150,31 @@ func (h *Handler) Upload(c *gin.Context) {
 
 	name := uuid.NewString() + kind.Ext
 	if h.storage != nil {
-		if err := h.storage.put(c, name, kind.MIME, file, size); err != nil {
-			_ = httpx.Fail(c, 502, "storage_error", "Could not store the file")
+		purpose := strings.TrimSpace(c.PostForm("purpose"))
+		bucket, private := h.storage.bucketFor(purpose)
+		if purpose != "listing_photo" && purpose != "private_document" {
+			_ = httpx.Fail(c, 400, "invalid_purpose", "Upload purpose must be listing_photo or private_document")
 			return
 		}
-		path := PublicPrefix + "/" + name
+		if err := h.storage.put(c, bucket, name, kind.MIME, file, size); err != nil {
+			_ = httpx.Fail(c, 502, "storage_error", fmt.Sprintf("Could not store the file: %v", err))
+			return
+		}
+		fileURL := h.storage.publicURL(bucket, name)
+		if private {
+			fileURL, err = h.storage.signedURL(c, bucket, name, 3600)
+			if err != nil {
+				_ = httpx.Fail(c, 502, "storage_error", fmt.Sprintf("File stored but signed URL creation failed: %v", err))
+				return
+			}
+		}
 		_ = httpx.Created(c, gin.H{
-			"url":      h.storage.publicURL(name),
-			"path":     path,
+			"url":      fileURL,
+			"path":     bucket + "/" + name,
 			"name":     name,
 			"mimeType": kind.MIME,
 			"size":     size,
+			"private":  private,
 		}, "File uploaded")
 		return
 	}

@@ -10,8 +10,10 @@ services:
         value: production
       - key: PUBLIC_BASE_URL
         value: https://viharam-go-api-backend.onrender.com
-      - key: SUPABASE_STORAGE_BUCKET
-        value: viharam-uploads
+      - key: SUPABASE_PUBLIC_BUCKET
+        value: viharam-public
+      - key: SUPABASE_PRIVATE_BUCKET
+        value: viharam-private
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY

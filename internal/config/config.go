@@ -10,52 +10,56 @@ import (
 )
 
 type Config struct {
-	Env                string
-	HTTPHost           string
-	HTTPPort           string
-	DatabaseURL        string
-	MongoURI           string
-	MongoDatabase      string
-	JWTSecret          string
-	JWTExpiresIn       time.Duration
-	CORSAllowedOrigins []string
-	RateLimitRPS       float64
-	RateLimitBurst     int
-	MaxBodyBytes       int
-	LogLevel           slog.Level
-	MigrateOnStartup   bool
-	ShutdownTimeout    time.Duration
-	UploadDir          string
-	MaxUploadBytes     int64
-	PublicBaseURL      string
-	SupabaseURL        string
-	SupabaseServiceKey string
-	SupabaseBucket     string
+	Env                   string
+	HTTPHost              string
+	HTTPPort              string
+	DatabaseURL           string
+	MongoURI              string
+	MongoDatabase         string
+	JWTSecret             string
+	JWTExpiresIn          time.Duration
+	CORSAllowedOrigins    []string
+	RateLimitRPS          float64
+	RateLimitBurst        int
+	MaxBodyBytes          int
+	LogLevel              slog.Level
+	MigrateOnStartup      bool
+	ShutdownTimeout       time.Duration
+	UploadDir             string
+	MaxUploadBytes        int64
+	PublicBaseURL         string
+	SupabaseURL           string
+	SupabaseServiceKey    string
+	SupabaseBucket        string // legacy fallback
+	SupabasePublicBucket  string
+	SupabasePrivateBucket string
 }
 
 func Load() (*Config, error) {
 	c := &Config{
-		Env:                getString("APP_ENV", "development"),
-		HTTPHost:           getString("HTTP_HOST", "0.0.0.0"),
-		HTTPPort:           getString("HTTP_PORT", "8080"),
-		DatabaseURL:        firstNonEmpty(os.Getenv("SUPABASE_DB_URL"), os.Getenv("DATABASE_URL")),
-		MongoURI:           strings.TrimSpace(os.Getenv("MONGODB_URI")),
-		MongoDatabase:      getString("MONGODB_DATABASE", "viharam"),
-		JWTSecret:          strings.TrimSpace(os.Getenv("JWT_SECRET")),
-		JWTExpiresIn:       getDuration("JWT_EXPIRES_IN", 7*24*time.Hour),
-		CORSAllowedOrigins: splitCSV(getString("CORS_ALLOWED_ORIGINS", "http://localhost:3000")),
-		RateLimitRPS:       getFloat("RATE_LIMIT_RPS", 20),
-		RateLimitBurst:     getInt("RATE_LIMIT_BURST", 40),
-		MaxBodyBytes:       getInt("MAX_BODY_BYTES", 1<<20),
-		LogLevel:           parseLevel(getString("LOG_LEVEL", "info")),
-		MigrateOnStartup:   getBool("MIGRATE_ON_STARTUP", false),
-		ShutdownTimeout:    getDuration("SHUTDOWN_TIMEOUT", 10*time.Second),
-		UploadDir:          getString("UPLOAD_DIR", "./uploads"),
-		MaxUploadBytes:     int64(getInt("MAX_UPLOAD_BYTES", 10<<20)),
-		PublicBaseURL:      strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_BASE_URL")), "/"),
-		SupabaseURL:        strings.TrimRight(strings.TrimSpace(os.Getenv("SUPABASE_URL")), "/"),
-		SupabaseServiceKey: strings.TrimSpace(os.Getenv("SUPABASE_SERVICE_ROLE_KEY")),
-		SupabaseBucket:     getString("SUPABASE_STORAGE_BUCKET", "viharam-uploads"),
+		Env:                   getString("APP_ENV", "development"),
+		HTTPHost:              getString("HTTP_HOST", "0.0.0.0"),
+		HTTPPort:              getString("HTTP_PORT", "8080"),
+		DatabaseURL:           firstNonEmpty(os.Getenv("SUPABASE_DB_URL"), os.Getenv("DATABASE_URL")),
+		MongoURI:              strings.TrimSpace(os.Getenv("MONGODB_URI")),
+		MongoDatabase:         getString("MONGODB_DATABASE", "viharam"),
+		JWTSecret:             strings.TrimSpace(os.Getenv("JWT_SECRET")),
+		JWTExpiresIn:          getDuration("JWT_EXPIRES_IN", 7*24*time.Hour),
+		CORSAllowedOrigins:    splitCSV(getString("CORS_ALLOWED_ORIGINS", "http://localhost:3000")),
+		RateLimitRPS:          getFloat("RATE_LIMIT_RPS", 20),
+		RateLimitBurst:        getInt("RATE_LIMIT_BURST", 40),
+		MaxBodyBytes:          getInt("MAX_BODY_BYTES", 1<<20),
+		LogLevel:              parseLevel(getString("LOG_LEVEL", "info")),
+		MigrateOnStartup:      getBool("MIGRATE_ON_STARTUP", false),
+		ShutdownTimeout:       getDuration("SHUTDOWN_TIMEOUT", 10*time.Second),
+		UploadDir:             getString("UPLOAD_DIR", "./uploads"),
+		MaxUploadBytes:        int64(getInt("MAX_UPLOAD_BYTES", 10<<20)),
+		PublicBaseURL:         strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_BASE_URL")), "/"),
+		SupabaseURL:           strings.TrimRight(strings.TrimSpace(os.Getenv("SUPABASE_URL")), "/"),
+		SupabaseServiceKey:    strings.TrimSpace(os.Getenv("SUPABASE_SERVICE_ROLE_KEY")),
+		SupabaseBucket:        getString("SUPABASE_STORAGE_BUCKET", "viharam-uploads"),
+		SupabasePublicBucket:  getString("SUPABASE_PUBLIC_BUCKET", getString("SUPABASE_STORAGE_BUCKET", "viharam-public")),
+		SupabasePrivateBucket: getString("SUPABASE_PRIVATE_BUCKET", "viharam-private"),
 	}
 	if c.DatabaseURL == "" && c.MongoURI == "" {
 		return nil, errors.New("SUPABASE_DB_URL/DATABASE_URL or MONGODB_URI is required")
