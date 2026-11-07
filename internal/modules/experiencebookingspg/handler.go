@@ -112,8 +112,9 @@ func (h *Handler) writeSlot(c *gin.Context, update bool) {
 // catalogue on first slot creation. The document id is reused so existing
 // mobile clients keep the same experienceId.
 func (h *Handler) ensureCreatorExperience(c *gin.Context, id, hostID string) error {
+	var owner string
 	var payload []byte
-	if err := h.db.Pool.QueryRow(c, `SELECT payload FROM document_records WHERE id=$1::uuid AND domain='creatorexperiences' AND owner_id=$2::uuid`, id, hostID).Scan(&payload); err != nil {
+	if err := h.db.Pool.QueryRow(c, `SELECT COALESCE(owner_id::text,''),payload FROM document_records WHERE id=$1::uuid AND domain='creatorexperiences'`, id).Scan(&owner, &payload); err != nil {
 		// A normal relational experience already exists.
 		var exists bool
 		if h.db.Pool.QueryRow(c, "SELECT EXISTS (SELECT 1 FROM experiences WHERE id=$1::uuid)", id).Scan(&exists) == nil && exists {
@@ -124,6 +125,11 @@ func (h *Handler) ensureCreatorExperience(c *gin.Context, id, hostID string) err
 	var doc map[string]any
 	if err := json.Unmarshal(payload, &doc); err != nil {
 		return err
+	}
+	// Older records may carry the owner in the JSON payload. Accept either
+	// canonical owner representation, but never promote an unrelated record.
+	if owner != hostID && text(doc["userId"]) != hostID {
+		return fmt.Errorf("experience does not belong to host")
 	}
 	title := text(doc["title"])
 	description := text(doc["description"])
