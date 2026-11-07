@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/viharam/go-api-backend/internal/config"
 )
@@ -15,6 +16,10 @@ func Connect(ctx context.Context, cfg *config.Config) (*Postgres, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Supabase's transaction pooler does not guarantee connection reuse for
+	// prepared statements. Execute queries directly instead of using pgx's
+	// connection-local prepared-statement cache.
+	poolCfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
 	poolCfg.MaxConns = 20
 	poolCfg.MinConns = 0
 	poolCfg.MaxConnIdleTime = 10 * time.Minute

@@ -5,6 +5,7 @@ package hostportalpg
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sort"
 	"time"
 
@@ -54,6 +55,7 @@ func (h *Handler) Listings(c *gin.Context) {
 (SELECT count(*) FROM property_bookings b WHERE b.property_id=p.id AND b.status IN ('confirmed','completed')),p.created_at::text
 FROM properties p WHERE p.host_id=$1::uuid ORDER BY p.updated_at DESC`, uid)
 	if err != nil {
+		slog.Error("host listings properties query failed", "user_id", uid, "error", err)
 		_ = httpx.Fail(c, 500, "database_error", "Failed to fetch listings")
 		return
 	}
@@ -62,6 +64,7 @@ FROM properties p WHERE p.host_id=$1::uuid ORDER BY p.updated_at DESC`, uid)
 		var price, count int64
 		var images []byte
 		if err := rows.Scan(&id, &name, &typ, &status, &city, &price, &image, &images, &count, &created); err != nil {
+			slog.Error("host listings property row decode failed", "user_id", uid, "error", err)
 			rows.Close()
 			_ = httpx.Fail(c, 500, "database_error", "Failed to decode listings")
 			return
@@ -80,6 +83,7 @@ FROM properties p WHERE p.host_id=$1::uuid ORDER BY p.updated_at DESC`, uid)
 	}
 	rows.Close()
 	if rows.Err() != nil {
+		slog.Error("host listings properties rows failed", "user_id", uid, "error", rows.Err())
 		_ = httpx.Fail(c, 500, "database_error", "Failed to fetch listings")
 		return
 	}
@@ -89,6 +93,7 @@ FROM properties p WHERE p.host_id=$1::uuid ORDER BY p.updated_at DESC`, uid)
 (SELECT count(*) FROM experience_bookings b WHERE b.experience_id=e.id AND b.status IN ('confirmed','completed')),e.created_at::text
 FROM experiences e WHERE e.host_id=$1::uuid ORDER BY e.updated_at DESC`, uid)
 	if err != nil {
+		slog.Error("host listings experiences query failed", "user_id", uid, "error", err)
 		_ = httpx.Fail(c, 500, "database_error", "Failed to fetch listings")
 		return
 	}
@@ -98,6 +103,7 @@ FROM experiences e WHERE e.host_id=$1::uuid ORDER BY e.updated_at DESC`, uid)
 		var minutes int
 		var content []byte
 		if err := rows.Scan(&id, &title, &category, &city, &status, &price, &minutes, &content, &count, &created); err != nil {
+			slog.Error("host listings experience row decode failed", "user_id", uid, "error", err)
 			rows.Close()
 			_ = httpx.Fail(c, 500, "database_error", "Failed to decode listings")
 			return
@@ -115,6 +121,7 @@ FROM experiences e WHERE e.host_id=$1::uuid ORDER BY e.updated_at DESC`, uid)
 	}
 	rows.Close()
 	if rows.Err() != nil {
+		slog.Error("host listings experiences rows failed", "user_id", uid, "error", rows.Err())
 		_ = httpx.Fail(c, 500, "database_error", "Failed to fetch listings")
 		return
 	}
@@ -123,6 +130,7 @@ FROM experiences e WHERE e.host_id=$1::uuid ORDER BY e.updated_at DESC`, uid)
 	// the JSONB document store until they are reviewed and promoted.
 	rows, err = h.db.Pool.Query(ctx, `SELECT id::text,payload,created_at::text FROM document_records WHERE domain='creatorexperiences' AND owner_id=$1::uuid AND NOT EXISTS (SELECT 1 FROM experiences e WHERE e.id=document_records.id) ORDER BY created_at DESC`, uid)
 	if err != nil {
+		slog.Error("host listings creator experiences query failed", "user_id", uid, "error", err)
 		_ = httpx.Fail(c, 500, "database_error", "Failed to fetch listings")
 		return
 	}
@@ -130,6 +138,7 @@ FROM experiences e WHERE e.host_id=$1::uuid ORDER BY e.updated_at DESC`, uid)
 		var id, created string
 		var payload []byte
 		if err := rows.Scan(&id, &payload, &created); err != nil {
+			slog.Error("host listings creator experience row decode failed", "user_id", uid, "error", err)
 			rows.Close()
 			_ = httpx.Fail(c, 500, "database_error", "Failed to decode listings")
 			return
@@ -153,6 +162,7 @@ FROM experiences e WHERE e.host_id=$1::uuid ORDER BY e.updated_at DESC`, uid)
 	}
 	rows.Close()
 	if rows.Err() != nil {
+		slog.Error("host listings creator experiences rows failed", "user_id", uid, "error", rows.Err())
 		_ = httpx.Fail(c, 500, "database_error", "Failed to fetch listings")
 		return
 	}
