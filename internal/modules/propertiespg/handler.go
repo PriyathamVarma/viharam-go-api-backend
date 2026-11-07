@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"strconv"
 	"strings"
@@ -95,11 +96,13 @@ VALUES($1,$2,$3,COALESCE(NULLIF($4,''),'hotel'),COALESCE(NULLIF($5,''),'active')
 RETURNING id::text`
 	err := h.db.Pool.QueryRow(c, query, claims.UserID, name, description, text(body["type"]), text(body["status"]), city, country, text(body["address"]), nullableFloat(body["latitude"]), nullableFloat(body["longitude"]), int64(math.Round(price*100)), int(guests), nullableInt(body["bedrooms"]), nullableInt(body["bathrooms"]), text(body["image"]), jsonBytes(body["images"]), jsonBytes(body["amenities"])).Scan(&id)
 	if err != nil {
+		slog.Error("property create failed", "request_id", requestID(c), "user_id", claims.UserID, "error", err)
 		_ = httpx.Fail(c, 500, "database_error", "Failed to create property")
 		return
 	}
 	item, err := h.get(c, id)
 	if err != nil {
+		slog.Error("created property could not be loaded", "request_id", requestID(c), "property_id", id, "error", err)
 		_ = httpx.Fail(c, 500, "database_error", "Failed to fetch created property")
 		return
 	}
@@ -271,4 +274,10 @@ func positive(v string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+func requestID(c *gin.Context) string {
+	value, _ := c.Get("requestID")
+	id, _ := value.(string)
+	return id
 }
