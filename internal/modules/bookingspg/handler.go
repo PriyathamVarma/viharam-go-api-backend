@@ -105,7 +105,7 @@ func (h *Handler) Create(c *gin.Context) {
 	var price int64
 	var maxGuests, rooms int
 	var status string
-	err = tx.QueryRow(c, "SELECT host_id::text,price_per_night_paise,max_guests,COALESCE(NULLIF(bedrooms,0),1),status FROM properties WHERE id=$1::uuid FOR SHARE", propertyID).Scan(&hostID, &price, &maxGuests, &rooms, &status)
+	err = tx.QueryRow(c, "SELECT host_id::text,price_per_night_paise,max_guests,COALESCE(NULLIF(bedrooms,0),1),status FROM properties WHERE id=$1::uuid FOR UPDATE", propertyID).Scan(&hostID, &price, &maxGuests, &rooms, &status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		_ = httpx.Fail(c, 404, "not_found", "Property not found")
 		return
