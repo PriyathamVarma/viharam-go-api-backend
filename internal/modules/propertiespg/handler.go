@@ -59,12 +59,17 @@ func (h *Handler) List(c *gin.Context) {
 		_ = httpx.Fail(c, 500, "database_error", "Failed to fetch properties")
 		return
 	}
-	var total int
-	if err := h.db.Pool.QueryRow(c, "SELECT count(*) FROM properties WHERE "+strings.Join(where, " AND "), args[:len(args)-2]...).Scan(&total); err != nil {
-		_ = httpx.Fail(c, 500, "database_error", "Failed to count properties")
-		return
+	meta := gin.H{"page": page, "limit": limit}
+	if c.Query("includeTotal") != "false" {
+		var total int
+		if err := h.db.Pool.QueryRow(c, "SELECT count(*) FROM properties WHERE "+strings.Join(where, " AND "), args[:len(args)-2]...).Scan(&total); err != nil {
+			_ = httpx.Fail(c, 500, "database_error", "Failed to count properties")
+			return
+		}
+		meta["total"] = total
+		meta["totalPages"] = int(math.Ceil(float64(total) / float64(limit)))
 	}
-	_ = httpx.OK(c, gin.H{"items": items, "meta": gin.H{"total": total, "page": page, "limit": limit, "totalPages": int(math.Ceil(float64(total) / float64(limit)))}}, "")
+	_ = httpx.OK(c, gin.H{"items": items, "meta": meta}, "")
 }
 
 func (h *Handler) Create(c *gin.Context) {

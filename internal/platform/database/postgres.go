@@ -21,7 +21,9 @@ func Connect(ctx context.Context, cfg *config.Config) (*Postgres, error) {
 	// connection-local prepared-statement cache.
 	poolCfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
 	poolCfg.MaxConns = 20
-	poolCfg.MinConns = 0
+	// Keep one connection warm so the first catalogue request after a quiet
+	// period does not pay the Supabase connection setup cost.
+	poolCfg.MinConns = 1
 	poolCfg.MaxConnIdleTime = 10 * time.Minute
 	poolCfg.ConnConfig.ConnectTimeout = 10 * time.Second
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)

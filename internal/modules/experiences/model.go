@@ -22,11 +22,12 @@ type Experience struct {
 }
 
 type SearchQuery struct {
-	Q        string
-	Category string
-	City     string
-	State    string
-	Featured bool
-	Page     int
-	Limit    int
+	Q            string
+	Category     string
+	City         string
+	State        string
+	Featured     bool
+	Page         int
+	Limit        int
+	IncludeTotal bool
 }

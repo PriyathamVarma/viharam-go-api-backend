@@ -21,7 +21,8 @@ func (h *Handler) List(c *gin.Context) {
 		limit = 12
 	}
 	featured, _ := strconv.ParseBool(c.Query("isFeatured"))
-	items, total, err := h.repo.List(c.Request.Context(), SearchQuery{Q: strings.TrimSpace(c.Query("q")), Category: c.Query("category"), City: c.Query("city"), State: c.Query("state"), Featured: featured, Page: page, Limit: limit})
+	includeTotal := c.Query("includeTotal") != "false"
+	items, total, err := h.repo.List(c.Request.Context(), SearchQuery{Q: strings.TrimSpace(c.Query("q")), Category: c.Query("category"), City: c.Query("city"), State: c.Query("state"), Featured: featured, Page: page, Limit: limit, IncludeTotal: includeTotal})
 	if err != nil {
 		_ = httpx.Fail(c, 500, "internal_error", "Could not load experiences")
 		return

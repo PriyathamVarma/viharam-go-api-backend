@@ -275,7 +275,9 @@ func New(cfg *config.Config, log *slog.Logger, db *database.Postgres, mongoDB *m
 	} else if db != nil {
 		experienceHandler := experiences.NewHandler(experiences.NewRepository(db))
 		catalogHandler := catalogpg.NewHandler()
+		combinedCatalogHandler := catalogpg.NewCombinedHandler(db)
 		v1.GET("/categories", catalogHandler.Categories)
+		v1.GET("/catalog", combinedCatalogHandler.List)
 		v1.GET("/experiences", experienceHandler.List)
 		v1.GET("/experiences/:id", experienceHandler.Detail)
 		v1.GET("/search", experienceHandler.List)

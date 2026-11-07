@@ -59,6 +59,9 @@ func (r *Repository) List(ctx context.Context, q SearchQuery) ([]Experience, int
 		}
 		items = append(items, e)
 	}
+	if !q.IncludeTotal {
+		return items, 0, rows.Err()
+	}
 	var total int
 	countQuery := fmt.Sprintf("SELECT count(*) FROM experiences e WHERE %s", strings.Join(where[:len(where)], " AND "))
 	countArgs := args[:len(args)-2]
