@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -151,6 +152,7 @@ func (h *Handler) Create(c *gin.Context) {
 	}
 	err := h.db.Pool.QueryRow(c, `INSERT INTO document_records(domain,owner_id,payload) VALUES($1,$2::uuid,$3) RETURNING id::text,created_at::text,updated_at::text`, h.domain, owner, raw).Scan(&id, &created, &updated)
 	if err != nil {
+		slog.Error("document create failed", "domain", h.domain, "owner", owner, "error", err)
 		_ = httpx.Fail(c, 500, "database_error", "Failed to create record")
 		return
 	}

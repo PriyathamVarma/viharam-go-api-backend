@@ -76,7 +76,9 @@ func (h *Handler) DeleteAccount(c *gin.Context) {
 }
 
 func (h *Handler) DemoLogin(c *gin.Context) {
-	if os.Getenv("APP_ENV") == "production" || os.Getenv("NODE_ENV") == "production" {
+	// Demo accounts remain disabled in production unless explicitly enabled for
+	// a review/preview environment.
+	if !demoAccountsEnabled() {
 		_ = httpx.Fail(c, 404, "not_found", "Not found")
 		return
 	}
@@ -116,6 +118,14 @@ func (h *Handler) DemoLogin(c *gin.Context) {
 	setToken(c, token)
 	_ = httpx.OK(c, gin.H{"id": user.ID, "name": user.Name, "email": user.Email, "type": user.Role, "token": token}, "Logged in as "+user.Name)
 }
+
+func demoAccountsEnabled() bool {
+	if os.Getenv("ENABLE_DEMO_ACCOUNTS") == "true" {
+		return true
+	}
+	return os.Getenv("APP_ENV") != "production" && os.Getenv("NODE_ENV") != "production"
+}
+
 func setToken(c *gin.Context, token string) {
 	c.SetCookie("token", token, 7*24*60*60, "/", "", c.Request.URL.Scheme == "https", true)
 }
