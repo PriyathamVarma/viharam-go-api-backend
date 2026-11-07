@@ -165,10 +165,19 @@ func durationMinutes(value string) int {
 	if err != nil || n < 1 {
 		return 0
 	}
-	if len(parts) > 1 && strings.HasPrefix(parts[1], "hour") {
-		return n * 60
+	if len(parts) < 2 {
+		return n
 	}
-	return n
+	switch {
+	case strings.HasPrefix(parts[1], "min"):
+		return n
+	case strings.HasPrefix(parts[1], "hour"):
+		return n * 60
+	case strings.HasPrefix(parts[1], "day"):
+		return n * 24 * 60
+	default:
+		return n
+	}
 }
 
 func (h *Handler) DeleteSlot(c *gin.Context) {
