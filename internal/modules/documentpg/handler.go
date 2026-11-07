@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -161,8 +162,89 @@ func (h *Handler) Create(c *gin.Context) {
 		_ = httpx.Fail(c, 500, "database_error", "Failed to create record")
 		return
 	}
+	if h.domain == "creatorexperiences" {
+		if err := h.promoteCreatorExperience(c, id, stringValue(owner), raw, payload); err != nil {
+			slog.Error("creator experience promotion failed", "id", id, "owner", owner, "error", err)
+			_ = httpx.Fail(c, 500, "database_error", "Failed to publish experience")
+			return
+		}
+	}
 	result := enrich(payload, id, created, updated)
 	_ = httpx.Created(c, result, "Record created")
+}
+
+// promoteCreatorExperience keeps the document API used by the mobile host
+// flow and the relational catalogue used by travellers in sync immediately.
+// Previously promotion happened only when the host created the first slot,
+// which made a newly-created experience invisible to travellers.
+func (h *Handler) promoteCreatorExperience(c *gin.Context, id, owner string, raw []byte, payload map[string]any) error {
+	title := stringValue(payload["title"])
+	description := stringValue(payload["description"])
+	category := stringValue(payload["category"])
+	city := stringValue(payload["city"])
+	if city == "" {
+		city = stringValue(payload["location"])
+	}
+	if title == "" || description == "" || category == "" || city == "" {
+		return fmt.Errorf("title, description, category and city are required")
+	}
+	state := stringValue(payload["state"])
+	village := stringValue(payload["village"])
+	price := numberValue(payload["pricePerPerson"])
+	maxGroup := int(numberValue(payload["maxGroupSize"]))
+	if maxGroup < 1 {
+		maxGroup = 1
+	}
+	minutes := durationMinutes(stringValue(payload["duration"]))
+	if minutes < 1 {
+		minutes = 60
+	}
+	slug := strings.ToLower(strings.Join(strings.Fields(title), "-")) + "-" + id[:8]
+	_, err := h.db.Pool.Exec(c, `INSERT INTO experiences(id,host_id,slug,title,short_description,description,category,city,state,village,price_per_person_paise,duration_minutes,min_group_size,max_group_size,content,status)
+VALUES($1::uuid,$2::uuid,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),$11,$12,1,$13,$14,'published')
+ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,description=EXCLUDED.description,category=EXCLUDED.category,city=EXCLUDED.city,state=EXCLUDED.state,village=EXCLUDED.village,price_per_person_paise=EXCLUDED.price_per_person_paise,duration_minutes=EXCLUDED.duration_minutes,max_group_size=EXCLUDED.max_group_size,content=EXCLUDED.content,status='published',updated_at=now()`, id, owner, slug, title, stringValue(payload["shortDescription"]), description, category, city, state, village, int64(price*100), minutes, maxGroup, raw)
+	return err
+}
+
+func durationMinutes(value string) int {
+	parts := strings.Fields(strings.ToLower(value))
+	if len(parts) == 0 {
+		return 0
+	}
+	n, err := strconv.Atoi(parts[0])
+	if err != nil || n < 1 {
+		return 0
+	}
+	if len(parts) < 2 {
+		return n
+	}
+	switch {
+	case strings.HasPrefix(parts[1], "min"):
+		return n
+	case strings.HasPrefix(parts[1], "hour"):
+		return n * 60
+	case strings.HasPrefix(parts[1], "day"):
+		return n * 24 * 60
+	default:
+		return n
+	}
+}
+
+func numberValue(value any) float64 {
+	switch v := value.(type) {
+	case float64:
+		return v
+	case int:
+		return float64(v)
+	case json.Number:
+		n, _ := v.Float64()
+		return n
+	case string:
+		n, _ := strconv.ParseFloat(v, 64)
+		return n
+	default:
+		return 0
+	}
 }
 
 func (h *Handler) Get(c *gin.Context) {
