@@ -207,6 +207,21 @@ func (h *Handler) promoteCreatorExperience(c *gin.Context, id, owner string, raw
 	_, err := h.db.Pool.Exec(c, `INSERT INTO experiences(id,host_id,slug,title,short_description,description,category,city,state,village,price_per_person_paise,duration_minutes,min_group_size,max_group_size,content,status)
 VALUES($1::uuid,$2::uuid,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),$11,$12,1,$13,$14,'published')
 ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,description=EXCLUDED.description,category=EXCLUDED.category,city=EXCLUDED.city,state=EXCLUDED.state,village=EXCLUDED.village,price_per_person_paise=EXCLUDED.price_per_person_paise,duration_minutes=EXCLUDED.duration_minutes,max_group_size=EXCLUDED.max_group_size,content=EXCLUDED.content,status='published',updated_at=now()`, id, owner, slug, title, stringValue(payload["shortDescription"]), description, category, city, state, village, int64(price*100), minutes, maxGroup, raw)
+	if err != nil {
+		return err
+	}
+	availability, ok := payload["availability"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("availability is required")
+	}
+	date := stringValue(availability["date"])
+	start := stringValue(availability["startTime"])
+	end := stringValue(availability["endTime"])
+	capacity := int(numberValue(availability["capacity"]))
+	if date == "" || start == "" || end == "" || capacity < 1 || end <= start {
+		return fmt.Errorf("availability date, times and capacity are invalid")
+	}
+	_, err = h.db.Pool.Exec(c, `INSERT INTO experience_slots(experience_id,date,start_time,end_time,capacity) VALUES($1::uuid,$2::date,$3::time,$4::time,$5) ON CONFLICT (experience_id,date,start_time) DO UPDATE SET end_time=EXCLUDED.end_time,capacity=EXCLUDED.capacity,updated_at=now()`, id, date, start, end, capacity)
 	return err
 }
 
