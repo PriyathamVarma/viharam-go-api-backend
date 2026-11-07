@@ -139,8 +139,11 @@ func (h *Handler) Create(c *gin.Context) {
 		payload[h.ownerField] = claims.UserID
 	}
 	if h.domain == "creatorexperiences" {
-		// Host-created experiences are immediately available. The relational
-		// catalogue row is created when the host adds the first slot.
+		// Experiences belong to hosts. An ambassador is assigned later by an
+		// admin to manage the area, property, or booking; it is not an
+		// experience property.
+		delete(payload, "ambassadorId")
+		delete(payload, "isAmbassadorLed")
 		payload["status"] = "published"
 	}
 	if h.domain == "itineraries" || h.domain == "creatorprofiles" || h.domain == "travellersafeties" {
@@ -305,6 +308,10 @@ func (h *Handler) Update(c *gin.Context) {
 	delete(patch, "updatedAt")
 	for key, value := range patch {
 		current[key] = value
+	}
+	if h.domain == "creatorexperiences" {
+		delete(current, "ambassadorId")
+		delete(current, "isAmbassadorLed")
 	}
 	raw, _ := json.Marshal(current)
 	var created, updated string
