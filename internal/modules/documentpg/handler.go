@@ -144,6 +144,7 @@ func (h *Handler) Create(c *gin.Context) {
 		// experience property.
 		delete(payload, "ambassadorId")
 		delete(payload, "isAmbassadorLed")
+		delete(payload, "ambassadorFee")
 		payload["status"] = "published"
 	}
 	if h.domain == "itineraries" || h.domain == "creatorprofiles" || h.domain == "travellersafeties" {
@@ -312,6 +313,7 @@ func (h *Handler) Update(c *gin.Context) {
 	if h.domain == "creatorexperiences" {
 		delete(current, "ambassadorId")
 		delete(current, "isAmbassadorLed")
+		delete(current, "ambassadorFee")
 	}
 	raw, _ := json.Marshal(current)
 	var created, updated string
