@@ -3,6 +3,8 @@ package experiencebookingspg
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -92,6 +94,10 @@ func (h *Handler) writeSlot(c *gin.Context, update bool) {
 			_ = httpx.Fail(c, 400, "invalid_request", "experienceId, date, startTime and endTime are required")
 			return
 		}
+		if err := h.ensureCreatorExperience(c, experience, claims.UserID); err != nil {
+			_ = httpx.Fail(c, 400, "invalid_request", "Experience must be created before adding slots")
+			return
+		}
 		err = h.db.Pool.QueryRow(c, `INSERT INTO experience_slots(experience_id,date,start_time,end_time,capacity,is_blocked) VALUES($1::uuid,$2,$3,$4,$5,COALESCE($6,false)) RETURNING id::text`, experience, date, start, end, capacity, nullableBool(body["isBlocked"])).Scan(&id)
 	}
 	if err != nil {
@@ -100,6 +106,63 @@ func (h *Handler) writeSlot(c *gin.Context, update bool) {
 	}
 	_ = claims
 	_ = httpx.OK(c, map[string]any{"_id": id}, "Experience slot saved")
+}
+
+// ensureCreatorExperience promotes a host-created document into the relational
+// catalogue on first slot creation. The document id is reused so existing
+// mobile clients keep the same experienceId.
+func (h *Handler) ensureCreatorExperience(c *gin.Context, id, hostID string) error {
+	var payload []byte
+	if err := h.db.Pool.QueryRow(c, `SELECT payload FROM document_records WHERE id=$1::uuid AND domain='creatorexperiences' AND owner_id=$2::uuid`, id, hostID).Scan(&payload); err != nil {
+		// A normal relational experience already exists.
+		var exists bool
+		if h.db.Pool.QueryRow(c, "SELECT EXISTS (SELECT 1 FROM experiences WHERE id=$1::uuid)", id).Scan(&exists) == nil && exists {
+			return nil
+		}
+		return err
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(payload, &doc); err != nil {
+		return err
+	}
+	title := text(doc["title"])
+	description := text(doc["description"])
+	category := text(doc["category"])
+	city := text(doc["city"])
+	if city == "" {
+		city = text(doc["location"])
+	}
+	if title == "" || description == "" || category == "" || city == "" {
+		return fmt.Errorf("creator experience is incomplete")
+	}
+	price := int64(number(doc["pricePerPerson"]) * 100)
+	maxGroup := int(number(doc["maxGroupSize"]))
+	if maxGroup < 1 {
+		maxGroup = 1
+	}
+	minutes := durationMinutes(text(doc["duration"]))
+	if minutes < 1 {
+		minutes = 60
+	}
+	slug := strings.ToLower(strings.Join(strings.Fields(title), "-")) + "-" + id[:8]
+	_, err := h.db.Pool.Exec(c, `INSERT INTO experiences(id,host_id,slug,title,short_description,description,category,city,state,village,price_per_person_paise,duration_minutes,min_group_size,max_group_size,content,status)
+VALUES($1::uuid,$2::uuid,$3,$4,'',$5,$6,$7,'',NULL,$8,$9,1,$10,$11,'published') ON CONFLICT(id) DO NOTHING`, id, hostID, slug, title, description, category, city, price, minutes, maxGroup, payload)
+	return err
+}
+
+func durationMinutes(value string) int {
+	parts := strings.Fields(strings.ToLower(value))
+	if len(parts) == 0 {
+		return 0
+	}
+	n, err := strconv.Atoi(parts[0])
+	if err != nil || n < 1 {
+		return 0
+	}
+	if len(parts) > 1 && strings.HasPrefix(parts[1], "hour") {
+		return n * 60
+	}
+	return n
 }
 
 func (h *Handler) DeleteSlot(c *gin.Context) {

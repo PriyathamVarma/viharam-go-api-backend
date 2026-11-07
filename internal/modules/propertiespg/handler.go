@@ -86,7 +86,7 @@ func (h *Handler) Create(c *gin.Context) {
 	}
 	var id string
 	query := `INSERT INTO properties(host_id,name,description,type,status,city,country,address,latitude,longitude,price_per_night_paise,max_guests,bedrooms,bathrooms,image,images,amenities)
-VALUES($1,$2,$3,COALESCE(NULLIF($4,''),'hotel'),COALESCE(NULLIF($5,''),'draft'),$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+VALUES($1,$2,$3,COALESCE(NULLIF($4,''),'hotel'),COALESCE(NULLIF($5,''),'active'),$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 RETURNING id::text`
 	err := h.db.Pool.QueryRow(c, query, claims.UserID, name, description, text(body["type"]), text(body["status"]), city, country, text(body["address"]), nullableFloat(body["latitude"]), nullableFloat(body["longitude"]), int64(math.Round(price*100)), int(guests), nullableInt(body["bedrooms"]), nullableInt(body["bathrooms"]), text(body["image"]), jsonBytes(body["images"]), jsonBytes(body["amenities"])).Scan(&id)
 	if err != nil {

@@ -137,6 +137,11 @@ func (h *Handler) Create(c *gin.Context) {
 	if h.ownerField != "" && !isAdmin(claims) {
 		payload[h.ownerField] = claims.UserID
 	}
+	if h.domain == "creatorexperiences" {
+		// Host-created experiences are immediately available. The relational
+		// catalogue row is created when the host adds the first slot.
+		payload["status"] = "published"
+	}
 	if h.domain == "itineraries" || h.domain == "creatorprofiles" || h.domain == "travellersafeties" {
 		payload[h.ownerField] = claims.UserID
 	}

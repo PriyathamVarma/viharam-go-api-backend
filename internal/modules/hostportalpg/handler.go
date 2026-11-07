@@ -121,7 +121,7 @@ FROM experiences e WHERE e.host_id=$1::uuid ORDER BY e.updated_at DESC`, uid)
 
 	// Experiences submitted from the apps (POST /creator-experiences) live in
 	// the JSONB document store until they are reviewed and promoted.
-	rows, err = h.db.Pool.Query(ctx, `SELECT id::text,payload,created_at::text FROM document_records WHERE domain='creatorexperiences' AND owner_id=$1::uuid ORDER BY created_at DESC`, uid)
+	rows, err = h.db.Pool.Query(ctx, `SELECT id::text,payload,created_at::text FROM document_records WHERE domain='creatorexperiences' AND owner_id=$1::uuid AND NOT EXISTS (SELECT 1 FROM experiences e WHERE e.id=document_records.id) ORDER BY created_at DESC`, uid)
 	if err != nil {
 		_ = httpx.Fail(c, 500, "database_error", "Failed to fetch listings")
 		return
