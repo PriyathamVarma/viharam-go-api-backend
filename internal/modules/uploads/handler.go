@@ -1,7 +1,6 @@
 // Package uploads implements POST /api/v1/uploads: authenticated multipart
-// uploads of images and PDFs stored on local disk and served read-only from
-// /uploads. Disk storage is ephemeral on some hosts (for example Render without
-// a persistent disk), so point UPLOAD_DIR at a mounted volume in production.
+// uploads of images and PDFs. Supabase Storage is used when configured; local
+// disk remains a development/test fallback.
 package uploads
 
 import (
@@ -12,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -37,6 +37,7 @@ type Handler struct {
 	dir      string
 	maxBytes int64
 	baseURL  string
+	storage  *supabaseStorage
 }
 
 // NewHandler builds the upload handler. Empty/zero arguments select defaults.
@@ -49,6 +50,21 @@ func NewHandler(dir string, maxBytes int64, baseURL string) *Handler {
 		maxBytes = DefaultMaxBytes
 	}
 	return &Handler{dir: dir, maxBytes: maxBytes, baseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/")}
+}
+
+// NewHandlerWithSupabase adds durable object storage without changing the
+// local/test constructor used by the upload unit tests.
+func NewHandlerWithSupabase(dir string, maxBytes int64, baseURL, supabaseURL, serviceKey, bucket string) *Handler {
+	h := NewHandler(dir, maxBytes, baseURL)
+	if strings.TrimSpace(supabaseURL) != "" && strings.TrimSpace(serviceKey) != "" && strings.TrimSpace(bucket) != "" {
+		h.storage = &supabaseStorage{
+			baseURL: strings.TrimRight(strings.TrimSpace(supabaseURL), "/"),
+			serviceKey: strings.TrimSpace(serviceKey),
+			bucket: strings.TrimSpace(bucket),
+			client: &http.Client{Timeout: 45 * time.Second},
+		}
+	}
+	return h
 }
 
 // Dir is the directory files are stored in (and must be served from).
@@ -125,11 +141,27 @@ func (h *Handler) Upload(c *gin.Context) {
 		return
 	}
 
+	name := uuid.NewString() + kind.Ext
+	if h.storage != nil {
+		if err := h.storage.put(c, name, kind.MIME, file, size); err != nil {
+			_ = httpx.Fail(c, 502, "storage_error", "Could not store the file")
+			return
+		}
+		path := PublicPrefix + "/" + name
+		_ = httpx.Created(c, gin.H{
+			"url":      h.storage.publicURL(name),
+			"path":     path,
+			"name":     name,
+			"mimeType": kind.MIME,
+			"size":     size,
+		}, "File uploaded")
+		return
+	}
+
 	if err := os.MkdirAll(h.dir, 0o750); err != nil {
 		_ = httpx.Fail(c, 500, "storage_error", "Could not store the file")
 		return
 	}
-	name := uuid.NewString() + kind.Ext
 	target := filepath.Join(h.dir, name)
 	out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o640)
 	if err != nil {

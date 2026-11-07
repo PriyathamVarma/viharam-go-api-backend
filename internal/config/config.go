@@ -28,6 +28,9 @@ type Config struct {
 	UploadDir          string
 	MaxUploadBytes     int64
 	PublicBaseURL      string
+	SupabaseURL        string
+	SupabaseServiceKey string
+	SupabaseBucket     string
 }
 
 func Load() (*Config, error) {
@@ -50,6 +53,9 @@ func Load() (*Config, error) {
 		UploadDir:          getString("UPLOAD_DIR", "./uploads"),
 		MaxUploadBytes:     int64(getInt("MAX_UPLOAD_BYTES", 10<<20)),
 		PublicBaseURL:      strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_BASE_URL")), "/"),
+		SupabaseURL:        strings.TrimRight(strings.TrimSpace(os.Getenv("SUPABASE_URL")), "/"),
+		SupabaseServiceKey: strings.TrimSpace(os.Getenv("SUPABASE_SERVICE_ROLE_KEY")),
+		SupabaseBucket:     getString("SUPABASE_STORAGE_BUCKET", "viharam-uploads"),
 	}
 	if c.DatabaseURL == "" && c.MongoURI == "" {
 		return nil, errors.New("SUPABASE_DB_URL/DATABASE_URL or MONGODB_URI is required")

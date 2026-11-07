@@ -17,9 +17,16 @@ Use the Supabase transaction-pooler connection string in `SUPABASE_DB_URL`:
 SUPABASE_DB_URL=postgresql://postgres.<project-ref>:<password>@<pooler-host>:6543/postgres?sslmode=require
 SUPABASE_URL=https://<project-ref>.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=<server-only-key>
+SUPABASE_STORAGE_BUCKET=viharam-uploads
 ```
 
 `SUPABASE_SERVICE_ROLE_KEY` must never be sent to the browser or mobile application. The Go API should use the database connection for transactional domain operations. Supabase REST calls are only needed for services that are not represented by PostgreSQL access, such as Storage or selected Auth operations.
+
+Create a public Storage bucket named `viharam-uploads` (or set
+`SUPABASE_STORAGE_BUCKET` to another bucket). The Go API uploads objects
+through the server-only Storage REST API and returns public object URLs. Local
+disk is used only when the Storage credentials are absent, which is suitable
+for local development but not for ephemeral production hosts.
 
 ## Persistence rules
 

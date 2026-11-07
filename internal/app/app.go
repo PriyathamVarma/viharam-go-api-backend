@@ -66,9 +66,9 @@ func New(cfg *config.Config, log *slog.Logger, db *database.Postgres, mongoDB *m
 	v1.DELETE("/auth/account", middleware.Auth(cfg.JWTSecret), authHandler.DeleteAccount)
 	v1.GET("/auth/me", middleware.Auth(cfg.JWTSecret), authHandler.Me)
 
-	// File uploads (multipart, images and PDFs) are stored on local disk and
-	// served read-only from /uploads; this works in both store modes.
-	uploadHandler := uploads.NewHandler(cfg.UploadDir, cfg.MaxUploadBytes, cfg.PublicBaseURL)
+	// File uploads use durable Supabase Storage in production. Local disk is a
+	// development/test fallback when storage credentials are not configured.
+	uploadHandler := uploads.NewHandlerWithSupabase(cfg.UploadDir, cfg.MaxUploadBytes, cfg.PublicBaseURL, cfg.SupabaseURL, cfg.SupabaseServiceKey, cfg.SupabaseBucket)
 	v1.POST("/uploads", middleware.Auth(cfg.JWTSecret), uploadHandler.Upload)
 	uploadHandler.Serve(app)
 
