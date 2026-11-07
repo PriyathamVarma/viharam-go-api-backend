@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -25,7 +26,12 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	pool, err := pgxpool.New(ctx, databaseURL)
+	poolConfig, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+	poolConfig.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		log.Fatal(err)
 	}
