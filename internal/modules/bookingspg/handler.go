@@ -20,7 +20,7 @@ type Handler struct{ db *database.Postgres }
 
 func NewHandler(db *database.Postgres) *Handler { return &Handler{db: db} }
 
-const bookingSelect = `SELECT b.id::text,b.traveler_id::text,b.property_id::text,b.host_id::text,b.check_in::text,b.check_out::text,b.guests,b.total_price_paise,b.price_per_night_paise,b.nights,b.status,COALESCE(b.notes,''),b.created_at::text,b.updated_at::text,COALESCE(p.name,''),COALESCE(p.city,''),COALESCE(p.address,''),COALESCE(p.image,''),COALESCE(p.images,'[]'::jsonb) FROM property_bookings b LEFT JOIN properties p ON p.id=b.property_id`
+const bookingSelect = `SELECT b.id::text,b.traveler_id::text,b.property_id::text,b.host_id::text,b.check_in::text,b.check_out::text,b.guests,b.rooms_required,b.total_price_paise,b.price_per_night_paise,b.nights,b.status,COALESCE(b.notes,''),b.created_at::text,b.updated_at::text,COALESCE(p.name,''),COALESCE(p.city,''),COALESCE(p.address,''),COALESCE(p.image,''),COALESCE(p.images,'[]'::jsonb) FROM property_bookings b LEFT JOIN properties p ON p.id=b.property_id`
 
 func (h *Handler) List(c *gin.Context) {
 	claims := middleware.ClaimsFrom(c)
@@ -103,9 +103,9 @@ func (h *Handler) Create(c *gin.Context) {
 	defer tx.Rollback(c)
 	var hostID string
 	var price int64
-	var maxGuests int
+	var maxGuests, rooms int
 	var status string
-	err = tx.QueryRow(c, "SELECT host_id::text,price_per_night_paise,max_guests,status FROM properties WHERE id=$1::uuid FOR SHARE", propertyID).Scan(&hostID, &price, &maxGuests, &status)
+	err = tx.QueryRow(c, "SELECT host_id::text,price_per_night_paise,max_guests,COALESCE(NULLIF(bedrooms,0),1),status FROM properties WHERE id=$1::uuid FOR SHARE", propertyID).Scan(&hostID, &price, &maxGuests, &rooms, &status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		_ = httpx.Fail(c, 404, "not_found", "Property not found")
 		return
@@ -122,20 +122,22 @@ func (h *Handler) Create(c *gin.Context) {
 		_ = httpx.Fail(c, 400, "invalid_request", "Guest count exceeds property capacity")
 		return
 	}
+	guestsPerRoom := (maxGuests + rooms - 1) / rooms
+	roomsRequired := (guests + guestsPerRoom - 1) / guestsPerRoom
 	var overlap int
-	err = tx.QueryRow(c, "SELECT count(*) FROM property_bookings WHERE property_id=$1::uuid AND status IN ('pending','confirmed') AND check_in<$3 AND check_out>$2", propertyID, checkIn, checkOut).Scan(&overlap)
+	err = tx.QueryRow(c, "SELECT COALESCE(sum(rooms_required),0) FROM property_bookings WHERE property_id=$1::uuid AND status IN ('confirmed','completed') AND check_in<$3 AND check_out>$2", propertyID, checkIn, checkOut).Scan(&overlap)
 	if err != nil {
 		_ = httpx.Fail(c, 500, "database_error", "Failed to check availability")
 		return
 	}
-	if overlap > 0 {
-		_ = httpx.Fail(c, 409, "unavailable", "Property is already booked for these dates")
+	if overlap+roomsRequired > rooms {
+		_ = httpx.Fail(c, 409, "unavailable", "Not enough rooms are available for these dates")
 		return
 	}
 	nights := int(checkOut.Sub(checkIn).Hours() / 24)
 	total := int64(nights) * price
 	var id string
-	_, err = tx.Exec(c, `INSERT INTO property_bookings(traveler_id,property_id,host_id,check_in,check_out,guests,total_price_paise,price_per_night_paise,nights,status,notes) VALUES($1::uuid,$2::uuid,$3::uuid,$4,$5,$6,$7,$8,$9,'pending',$10)`, claims.UserID, propertyID, hostID, checkIn, checkOut, guests, total, price, nights, text(body["notes"]))
+	_, err = tx.Exec(c, `INSERT INTO property_bookings(traveler_id,property_id,host_id,check_in,check_out,guests,rooms_required,total_price_paise,price_per_night_paise,nights,status,notes) VALUES($1::uuid,$2::uuid,$3::uuid,$4,$5,$6,$7,$8,$9,$10,'confirmed',$11)`, claims.UserID, propertyID, hostID, checkIn, checkOut, guests, roomsRequired, total, price, nights, text(body["notes"]))
 	if err != nil {
 		_ = httpx.Fail(c, 500, "database_error", "Failed to create booking")
 		return
@@ -219,9 +221,9 @@ func scan(row pgx.Row) (map[string]any, error) {
 	var id, traveler, property, host, checkIn, checkOut, status, notes, created, updated string
 	var title, city, address, image string
 	var images []byte
-	var guests, nights int
+	var guests, roomsRequired, nights int
 	var total, price int64
-	if err := row.Scan(&id, &traveler, &property, &host, &checkIn, &checkOut, &guests, &total, &price, &nights, &status, &notes, &created, &updated, &title, &city, &address, &image, &images); err != nil {
+	if err := row.Scan(&id, &traveler, &property, &host, &checkIn, &checkOut, &guests, &roomsRequired, &total, &price, &nights, &status, &notes, &created, &updated, &title, &city, &address, &image, &images); err != nil {
 		return nil, err
 	}
 	photo := image
@@ -231,7 +233,7 @@ func scan(row pgx.Row) (map[string]any, error) {
 			photo = portalcalc.FirstPhoto(decoded)
 		}
 	}
-	return map[string]any{"_id": id, "travelerId": traveler, "propertyId": property, "hostId": host, "checkIn": checkIn, "checkOut": checkOut, "guests": guests, "totalPrice": float64(total) / 100, "pricePerNight": float64(price) / 100, "nights": nights, "status": status, "notes": notes, "createdAt": created, "updatedAt": updated,
+	return map[string]any{"_id": id, "travelerId": traveler, "propertyId": property, "hostId": host, "checkIn": checkIn, "checkOut": checkOut, "guests": guests, "roomsRequired": roomsRequired, "totalPrice": float64(total) / 100, "pricePerNight": float64(price) / 100, "nights": nights, "status": status, "notes": notes, "createdAt": created, "updatedAt": updated,
 		"title": title, "experienceTitle": title, "date": checkIn, "startTime": "", "meetingPoint": address, "city": city, "photo": photo, "guestCount": guests}, nil
 }
 func parseDate(v string) (time.Time, error) {
