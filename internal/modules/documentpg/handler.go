@@ -160,7 +160,9 @@ func (h *Handler) Create(c *gin.Context) {
 			return
 		}
 	}
-	err := h.db.Pool.QueryRow(c, `INSERT INTO document_records(domain,owner_id,payload) VALUES($1,$2::uuid,$3) RETURNING id::text,created_at::text,updated_at::text`, h.domain, owner, raw).Scan(&id, &created, &updated)
+	// Pass JSONB as text. pgx may encode a []byte parameter as bytea, which
+	// PostgreSQL then rejects for the jsonb payload column.
+	err := h.db.Pool.QueryRow(c, `INSERT INTO document_records(domain,owner_id,payload) VALUES($1,$2::uuid,$3) RETURNING id::text,created_at::text,updated_at::text`, h.domain, owner, string(raw)).Scan(&id, &created, &updated)
 	if err != nil {
 		slog.Error("document create failed", "domain", h.domain, "owner", owner, "error", err)
 		_ = httpx.Fail(c, 500, "database_error", "Failed to create record")
@@ -206,7 +208,7 @@ func (h *Handler) promoteCreatorExperience(c *gin.Context, id, owner string, raw
 	slug := strings.ToLower(strings.Join(strings.Fields(title), "-")) + "-" + id[:8]
 	_, err := h.db.Pool.Exec(c, `INSERT INTO experiences(id,host_id,slug,title,short_description,description,category,city,state,village,price_per_person_paise,duration_minutes,min_group_size,max_group_size,content,status)
 VALUES($1::uuid,$2::uuid,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),$11,$12,1,$13,$14,'published')
-ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,description=EXCLUDED.description,category=EXCLUDED.category,city=EXCLUDED.city,state=EXCLUDED.state,village=EXCLUDED.village,price_per_person_paise=EXCLUDED.price_per_person_paise,duration_minutes=EXCLUDED.duration_minutes,max_group_size=EXCLUDED.max_group_size,content=EXCLUDED.content,status='published',updated_at=now()`, id, owner, slug, title, stringValue(payload["shortDescription"]), description, category, city, state, village, int64(price*100), minutes, maxGroup, raw)
+ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,description=EXCLUDED.description,category=EXCLUDED.category,city=EXCLUDED.city,state=EXCLUDED.state,village=EXCLUDED.village,price_per_person_paise=EXCLUDED.price_per_person_paise,duration_minutes=EXCLUDED.duration_minutes,max_group_size=EXCLUDED.max_group_size,content=EXCLUDED.content,status='published',updated_at=now()`, id, owner, slug, title, stringValue(payload["shortDescription"]), description, category, city, state, village, int64(price*100), minutes, maxGroup, string(raw))
 	if err != nil {
 		return err
 	}
