@@ -60,9 +60,13 @@ func Load() (*Config, error) {
 		// Keep the legacy service-role name as a fallback for older deployments, but
 		// prefer the secret key so a publishable key cannot accidentally be used for
 		// Storage administration.
-		SupabaseServiceKey:    firstNonEmpty(os.Getenv("SUPABASE_SECRET_KEY"), os.Getenv("SUPABASE_SERVICE_ROLE_KEY")),
-		SupabaseBucket:        getString("SUPABASE_STORAGE_BUCKET", "viharam-uploads"),
-		SupabasePublicBucket:  getString("SUPABASE_PUBLIC_BUCKET", getString("SUPABASE_STORAGE_BUCKET", "viharam-public")),
+		SupabaseServiceKey: firstNonEmpty(os.Getenv("SUPABASE_SECRET_KEY"), os.Getenv("SUPABASE_SERVICE_ROLE_KEY")),
+		SupabaseBucket:     getString("SUPABASE_STORAGE_BUCKET", "viharam-uploads"),
+		// Do not fall back to the legacy SUPABASE_STORAGE_BUCKET here. Older
+		// deployments may still contain viharam-uploads, which no longer exists.
+		// The public listing bucket is explicitly named and defaults to the
+		// Viharam production bucket.
+		SupabasePublicBucket:  getString("SUPABASE_PUBLIC_BUCKET", "viharam-public"),
 		SupabasePrivateBucket: getString("SUPABASE_PRIVATE_BUCKET", "viharam-private"),
 	}
 	if c.DatabaseURL == "" && c.MongoURI == "" {
