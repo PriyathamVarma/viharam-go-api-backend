@@ -58,12 +58,17 @@ func New(cfg *config.Config, log *slog.Logger, db *database.Postgres, mongoDB *m
 	} else {
 		authRepo = auth.NewRepository(db)
 	}
-	authHandler := auth.NewHandler(auth.NewService(authRepo, cfg.JWTSecret, cfg.JWTExpiresIn))
+	authHandler := auth.NewHandler(auth.NewService(authRepo, cfg.JWTSecret, cfg.JWTExpiresIn, cfg.SupabaseURL, cfg.SupabaseServiceKey))
 	v1.POST("/auth/register", authHandler.Register)
 	v1.POST("/auth/login", authHandler.Login)
+	v1.POST("/auth/supabase", authHandler.SupabaseLogin)
 	v1.POST("/auth/demo-login", authHandler.DemoLogin)
 	v1.POST("/auth/logout", authHandler.Logout)
 	v1.DELETE("/auth/account", middleware.Auth(cfg.JWTSecret), authHandler.DeleteAccount)
+	v1.POST("/auth/account/deletion-request", middleware.Auth(cfg.JWTSecret), authHandler.RequestDeletion)
+	v1.GET("/admin/account-deletion-requests", middleware.Auth(cfg.JWTSecret), middleware.RequireRole("Admin", "SuperAdmin"), authHandler.ListDeletionRequests)
+	v1.POST("/admin/account-deletion-requests/:id/approve", middleware.Auth(cfg.JWTSecret), middleware.RequireRole("Admin", "SuperAdmin"), authHandler.ApproveDeletion)
+	v1.POST("/admin/account-deletion-requests/:id/reject", middleware.Auth(cfg.JWTSecret), middleware.RequireRole("Admin", "SuperAdmin"), authHandler.RejectDeletion)
 	v1.GET("/auth/me", middleware.Auth(cfg.JWTSecret), authHandler.Me)
 
 	// File uploads use durable Supabase Storage in production. Local disk is a

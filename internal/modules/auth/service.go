@@ -24,13 +24,15 @@ const (
 )
 
 type Service struct {
-	repo    UserRepository
-	secret  []byte
-	expires time.Duration
+	repo        UserRepository
+	secret      []byte
+	expires     time.Duration
+	supabaseURL string
+	supabaseKey string
 }
 
-func NewService(repo UserRepository, secret string, expires time.Duration) *Service {
-	return &Service{repo: repo, secret: []byte(secret), expires: expires}
+func NewService(repo UserRepository, secret string, expires time.Duration, supabaseURL, supabaseKey string) *Service {
+	return &Service{repo: repo, secret: []byte(secret), expires: expires, supabaseURL: supabaseURL, supabaseKey: supabaseKey}
 }
 
 func (s *Service) Register(ctx context.Context, input RegisterInput) (User, string, error) {

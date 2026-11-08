@@ -29,10 +29,16 @@ type mongoUser struct {
 
 func (r *MongoRepository) Delete(ctx context.Context, id string) error {
 	objectID, err := bson.ObjectIDFromHex(id)
-	if err != nil { return ErrNotFound }
+	if err != nil {
+		return ErrNotFound
+	}
 	result, err := r.db.Collection("users").DeleteOne(ctx, bson.M{"_id": objectID})
-	if err != nil { return err }
-	if result.DeletedCount == 0 { return ErrNotFound }
+	if err != nil {
+		return err
+	}
+	if result.DeletedCount == 0 {
+		return ErrNotFound
+	}
 	return nil
 }
 
@@ -94,6 +100,33 @@ func (r *MongoRepository) FindByID(ctx context.Context, id string) (User, error)
 		return User{}, ErrNotFound
 	}
 	if err != nil {
+		return User{}, err
+	}
+	return toUser(doc), nil
+}
+
+func (r *MongoRepository) FindOrCreateOAuth(ctx context.Context, provider, subject, name, email string) (User, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	var doc mongoUser
+	err := r.db.Collection("users").FindOne(ctx, bson.M{"email": email}).Decode(&doc)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		doc = mongoUser{Name: name, Email: email, PasswordHash: "oauth:" + provider + ":" + subject, Type: "Traveller"}
+		result, insertErr := r.db.Collection("users").InsertOne(ctx, doc)
+		if insertErr != nil {
+			return User{}, insertErr
+		}
+		if id, ok := result.InsertedID.(bson.ObjectID); ok {
+			doc.ID = id
+		}
+		return toUser(doc), nil
+	}
+	if err != nil {
+		return User{}, err
+	}
+	if doc.Name == "" {
+		doc.Name = name
+	}
+	if _, err := r.db.Collection("users").UpdateOne(ctx, bson.M{"_id": doc.ID}, bson.M{"$set": bson.M{"name": doc.Name, "oauthProvider": provider, "oauthSubject": subject}}); err != nil {
 		return User{}, err
 	}
 	return toUser(doc), nil

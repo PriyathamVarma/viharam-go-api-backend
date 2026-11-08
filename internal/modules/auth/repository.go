@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/viharam/go-api-backend/internal/platform/database"
 )
 
@@ -16,13 +17,18 @@ type UserRepository interface {
 	EnsureDemo(context.Context, RegisterInput, string) (User, error)
 	FindByEmail(context.Context, string) (User, string, error)
 	FindByID(context.Context, string) (User, error)
+	FindOrCreateOAuth(context.Context, string, string, string, string) (User, error)
 	Delete(context.Context, string) error
 }
 
 func (r *Repository) Delete(ctx context.Context, id string) error {
 	command, err := r.db.Pool.Exec(ctx, `UPDATE users SET status='deleted', updated_at=now() WHERE id=$1::uuid AND status='active'`, id)
-	if err != nil { return err }
-	if command.RowsAffected() == 0 { return ErrNotFound }
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() == 0 {
+		return ErrNotFound
+	}
 	return nil
 }
 
@@ -79,6 +85,31 @@ func (r *Repository) FindByID(ctx context.Context, id string) (User, error) {
 	err := r.db.Pool.QueryRow(ctx, `SELECT id::text,name,email,role,COALESCE(phone_number,''),COALESCE(photo_url,''),COALESCE(bio,''),is_verified FROM users WHERE id=$1::uuid AND status='active'`, id).Scan(&user.ID, &user.Name, &user.Email, &user.Role, &user.PhoneNumber, &user.PhotoURL, &user.Bio, &user.IsVerified)
 	if err != nil {
 		return User{}, ErrNotFound
+	}
+	return user, nil
+}
+
+func (r *Repository) FindOrCreateOAuth(ctx context.Context, provider, subject, name, email string) (User, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	var user User
+	err := r.db.Pool.QueryRow(ctx, `SELECT id::text,name,email,role,COALESCE(phone_number,''),COALESCE(photo_url,''),COALESCE(bio,''),is_verified FROM users WHERE auth_provider=$1 AND auth_subject=$2 AND status='active'`, provider, subject).Scan(&user.ID, &user.Name, &user.Email, &user.Role, &user.PhoneNumber, &user.PhotoURL, &user.Bio, &user.IsVerified)
+	if err == nil {
+		return user, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return User{}, err
+	}
+	var existingID string
+	err = r.db.Pool.QueryRow(ctx, `SELECT id::text FROM users WHERE lower(email)=lower($1) AND status='active'`, email).Scan(&existingID)
+	if err == nil {
+		return User{}, errors.New("an account already exists for this email")
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return User{}, err
+	}
+	err = r.db.Pool.QueryRow(ctx, `INSERT INTO users(name,email,password_hash,role,auth_provider,auth_subject) VALUES($1,$2,'oauth:'||gen_random_uuid(),'Traveller',$3,$4) RETURNING id::text,name,email,role,COALESCE(phone_number,''),COALESCE(photo_url,''),COALESCE(bio,''),is_verified`, name, email, provider, subject).Scan(&user.ID, &user.Name, &user.Email, &user.Role, &user.PhoneNumber, &user.PhotoURL, &user.Bio, &user.IsVerified)
+	if err != nil {
+		return User{}, err
 	}
 	return user, nil
 }

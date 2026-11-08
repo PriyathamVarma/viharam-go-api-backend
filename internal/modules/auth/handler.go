@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/viharam/go-api-backend/internal/middleware"
@@ -45,6 +46,24 @@ func (h *Handler) Login(c *gin.Context) {
 	setToken(c, token)
 	_ = httpx.OK(c, gin.H{"user": user, "token": token}, "Signed in")
 }
+
+func (h *Handler) SupabaseLogin(c *gin.Context) {
+	var input struct {
+		AccessToken string `json:"accessToken"`
+		Name        string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil || input.AccessToken == "" {
+		_ = httpx.Fail(c, 400, "invalid_request", "A Supabase access token is required")
+		return
+	}
+	user, token, err := h.service.LoginWithSupabase(c.Request.Context(), input.AccessToken, input.Name)
+	if err != nil {
+		_ = httpx.Fail(c, 401, "invalid_credentials", "Apple sign-in could not be verified")
+		return
+	}
+	setToken(c, token)
+	_ = httpx.OK(c, gin.H{"user": user, "token": token}, "Signed in with Apple")
+}
 func (h *Handler) Me(c *gin.Context) {
 	claims := middleware.ClaimsFrom(c)
 	if claims == nil {
@@ -64,15 +83,97 @@ func (h *Handler) Logout(c *gin.Context) {
 }
 
 func (h *Handler) DeleteAccount(c *gin.Context) {
+	h.RequestDeletion(c)
+}
+
+func (h *Handler) RequestDeletion(c *gin.Context) {
 	claims := middleware.ClaimsFrom(c)
-	if claims == nil { _ = httpx.Fail(c, 401, "unauthorized", "Authentication required"); return }
-	if err := h.service.repo.Delete(c.Request.Context(), claims.UserID); err != nil {
-		if errors.Is(err, ErrNotFound) { _ = httpx.Fail(c, 404, "user_not_found", "User not found"); return }
-		_ = httpx.Fail(c, 500, "internal_error", "Could not delete account")
+	if claims == nil {
+		_ = httpx.Fail(c, 401, "unauthorized", "Authentication required")
+		return
+	}
+	deletions, ok := h.service.repo.(AccountDeletionRepository)
+	if !ok {
+		_ = httpx.Fail(c, 501, "unsupported", "Account deletion review is only available with PostgreSQL")
+		return
+	}
+	request, err := deletions.RequestDeletion(c.Request.Context(), claims.UserID)
+	if err != nil {
+		if errors.Is(err, ErrDeletionPending) {
+			_ = httpx.Fail(c, 409, "deletion_pending", "An account deletion request is already pending")
+			return
+		}
+		if errors.Is(err, ErrNotFound) {
+			_ = httpx.Fail(c, 404, "user_not_found", "User not found")
+			return
+		}
+		_ = httpx.Fail(c, 500, "internal_error", "Could not request account deletion")
 		return
 	}
 	c.SetCookie("token", "", -1, "/", "", c.Request.URL.Scheme == "https", true)
-	_ = httpx.OK(c, nil, "Account deleted")
+	_ = httpx.OK(c, gin.H{"request": request}, "Account deletion requested; an administrator can review it after seven days")
+}
+
+func (h *Handler) ListDeletionRequests(c *gin.Context) {
+	deletions, ok := h.service.repo.(AccountDeletionRepository)
+	if !ok {
+		_ = httpx.Fail(c, 501, "unsupported", "Account deletion review is only available with PostgreSQL")
+		return
+	}
+	items, err := deletions.ListDeletionRequests(c.Request.Context())
+	if err != nil {
+		_ = httpx.Fail(c, 500, "internal_error", "Could not load deletion requests")
+		return
+	}
+	_ = httpx.OK(c, gin.H{"requests": items}, "Account deletion requests")
+}
+
+func (h *Handler) ApproveDeletion(c *gin.Context) {
+	deletions, ok := h.service.repo.(AccountDeletionRepository)
+	if !ok {
+		_ = httpx.Fail(c, 501, "unsupported", "Account deletion review is only available with PostgreSQL")
+		return
+	}
+	claims := middleware.ClaimsFrom(c)
+	request, remote, err := deletions.ApproveDeletion(c.Request.Context(), c.Param("id"), claims.UserID)
+	if err != nil {
+		if errors.Is(err, ErrDeletionNotReady) {
+			_ = httpx.Fail(c, 409, "deletion_not_ready", "The seven-day review period has not elapsed")
+			return
+		}
+		if errors.Is(err, ErrDeletionNotFound) {
+			_ = httpx.Fail(c, 404, "not_found", "Deletion request not found")
+			return
+		}
+		_ = httpx.Fail(c, 500, "internal_error", "Could not complete account deletion")
+		return
+	}
+	remoteDeleted := false
+	if provider, subject, found := strings.Cut(remote, ":"); found && provider == "supabase" && subject != "" {
+		if deleteErr := h.service.DeleteSupabaseUser(c.Request.Context(), subject); deleteErr == nil {
+			remoteDeleted = true
+		}
+	}
+	_ = httpx.OK(c, gin.H{"request": request, "remoteAuthDeleted": remoteDeleted}, "Account data deleted")
+}
+
+func (h *Handler) RejectDeletion(c *gin.Context) {
+	deletions, ok := h.service.repo.(AccountDeletionRepository)
+	if !ok {
+		_ = httpx.Fail(c, 501, "unsupported", "Account deletion review is only available with PostgreSQL")
+		return
+	}
+	claims := middleware.ClaimsFrom(c)
+	request, err := deletions.RejectDeletion(c.Request.Context(), c.Param("id"), claims.UserID)
+	if err != nil {
+		if errors.Is(err, ErrDeletionNotFound) {
+			_ = httpx.Fail(c, 404, "not_found", "Deletion request not found")
+			return
+		}
+		_ = httpx.Fail(c, 500, "internal_error", "Could not reject account deletion")
+		return
+	}
+	_ = httpx.OK(c, gin.H{"request": request}, "Account deletion rejected")
 }
 
 func (h *Handler) DemoLogin(c *gin.Context) {
