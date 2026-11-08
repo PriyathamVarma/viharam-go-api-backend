@@ -231,15 +231,15 @@ func decodeJSON(raw []byte) any {
 	}
 	return value
 }
-func jsonBytes(value any) []byte {
+func jsonBytes(value any) string {
 	if value == nil {
-		return []byte("[]")
+		return "[]"
 	}
 	raw, err := json.Marshal(value)
 	if err != nil {
-		return []byte("[]")
+		return "[]"
 	}
-	return raw
+	return string(raw)
 }
 func text(v any) string { s, _ := v.(string); return strings.TrimSpace(s) }
 func number(v any) float64 {
