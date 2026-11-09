@@ -44,6 +44,26 @@ func TestMongoRoutesRegisterWithoutConflicts(t *testing.T) {
 	}
 }
 
+func TestHealthHeadRoute(t *testing.T) {
+	cfg := &config.Config{JWTSecret: "test-secret-that-is-long-enough-for-the-router", JWTExpiresIn: time.Hour, CORSAllowedOrigins: []string{"*"}}
+	engine := New(cfg, slog.Default(), nil, &mongodb.Database{})
+
+	head := httptest.NewRecorder()
+	engine.ServeHTTP(head, httptest.NewRequest(http.MethodHead, "/getHealthHead", nil))
+	if head.Code != http.StatusOK {
+		t.Fatalf("HEAD /getHealthHead = %d, want %d", head.Code, http.StatusOK)
+	}
+	if head.Body.Len() != 0 {
+		t.Fatalf("HEAD /getHealthHead returned a body: %q", head.Body.String())
+	}
+
+	get := httptest.NewRecorder()
+	engine.ServeHTTP(get, httptest.NewRequest(http.MethodGet, "/getHealthHead", nil))
+	if get.Code != http.StatusNotFound {
+		t.Fatalf("GET /getHealthHead = %d, want %d", get.Code, http.StatusNotFound)
+	}
+}
+
 func TestSupabaseRoutesRegisterWithoutMongo(t *testing.T) {
 	cfg := &config.Config{JWTSecret: "test-secret-that-is-long-enough-for-the-router", JWTExpiresIn: time.Hour, CORSAllowedOrigins: []string{"*"}}
 	engine := New(cfg, slog.Default(), &database.Postgres{}, nil)

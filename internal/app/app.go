@@ -45,6 +45,7 @@ func New(cfg *config.Config, log *slog.Logger, db *database.Postgres, mongoDB *m
 
 	healthHandler := health.New(db)
 	app.GET("/health", healthHandler.Live)
+	app.HEAD("/getHealthHead", healthHandler.Head)
 	app.GET("/ready", healthHandler.Ready)
 	app.GET("/version", healthHandler.Version)
 

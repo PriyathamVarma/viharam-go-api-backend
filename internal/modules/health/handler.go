@@ -2,8 +2,10 @@ package health
 
 import (
 	"context"
-	"github.com/gin-gonic/gin"
+	"net/http"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Pinger interface{ Ping(context.Context) error }
@@ -18,6 +20,9 @@ func New(db Pinger) *Handler {
 }
 func (h *Handler) Live(c *gin.Context) {
 	c.JSON(200, gin.H{"status": "ok", "uptime": time.Since(h.started).String()})
+}
+func (h *Handler) Head(c *gin.Context) {
+	c.Status(http.StatusOK)
 }
 func (h *Handler) Ready(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
