@@ -58,7 +58,19 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (User, stri
 	return user, token, err
 }
 
-func normalizePhone(phone string) string { return strings.TrimSpace(phone) }
+func normalizePhone(phone string) string {
+	digits := phoneDigits(phone)
+	if strings.HasPrefix(digits, "91") {
+		digits = digits[2:]
+	}
+	if len(digits) > 10 {
+		digits = digits[:10]
+	}
+	if digits == "" {
+		return ""
+	}
+	return "+91 " + digits
+}
 func phoneDigits(phone string) string {
 	var b strings.Builder
 	for _, r := range phone {
