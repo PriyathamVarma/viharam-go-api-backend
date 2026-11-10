@@ -39,8 +39,9 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (User, stri
 	input.Name = strings.TrimSpace(input.Name)
 	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
 	input.Type = strings.TrimSpace(input.Type)
-	if input.Name == "" || input.Email == "" || len(input.Password) < 8 {
-		return User{}, "", errors.New("name, valid email and password of at least 8 characters are required")
+	input.Phone = normalizePhone(input.Phone)
+	if input.Name == "" || input.Email == "" || len(input.Password) < 8 || len(phoneDigits(input.Phone)) < 10 {
+		return User{}, "", errors.New("name, valid email, phone number and password of at least 8 characters are required")
 	}
 	if input.Type != "Host" && input.Type != "Ambassador" {
 		input.Type = "Traveller"
@@ -55,6 +56,25 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (User, stri
 	}
 	token, err := s.token(user)
 	return user, token, err
+}
+
+func normalizePhone(phone string) string { return strings.TrimSpace(phone) }
+func phoneDigits(phone string) string {
+	var b strings.Builder
+	for _, r := range phone {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func (s *Service) UpdatePhone(ctx context.Context, id, phone string) (User, error) {
+	phone = normalizePhone(phone)
+	if len(phoneDigits(phone)) < 10 {
+		return User{}, errors.New("a valid phone number with at least 10 digits is required")
+	}
+	return s.repo.UpdatePhone(ctx, id, phone)
 }
 
 func (s *Service) Login(ctx context.Context, input LoginInput) (User, string, error) {

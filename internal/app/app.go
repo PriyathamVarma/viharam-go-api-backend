@@ -71,6 +71,7 @@ func New(cfg *config.Config, log *slog.Logger, db *database.Postgres, mongoDB *m
 	v1.POST("/admin/account-deletion-requests/:id/approve", middleware.Auth(cfg.JWTSecret), middleware.RequireRole("Admin", "SuperAdmin"), authHandler.ApproveDeletion)
 	v1.POST("/admin/account-deletion-requests/:id/reject", middleware.Auth(cfg.JWTSecret), middleware.RequireRole("Admin", "SuperAdmin"), authHandler.RejectDeletion)
 	v1.GET("/auth/me", middleware.Auth(cfg.JWTSecret), authHandler.Me)
+	v1.PATCH("/auth/me", middleware.Auth(cfg.JWTSecret), authHandler.UpdateMe)
 
 	// File uploads use durable Supabase Storage in production. Local disk is a
 	// development/test fallback when storage credentials are not configured.

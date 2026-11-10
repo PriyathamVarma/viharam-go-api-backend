@@ -20,7 +20,7 @@ type Handler struct{ db *database.Postgres }
 
 func NewHandler(db *database.Postgres) *Handler { return &Handler{db: db} }
 
-const bookingSelect = `SELECT b.id::text,b.traveler_id::text,b.property_id::text,b.host_id::text,b.check_in::text,b.check_out::text,b.guests,b.rooms_required,b.total_price_paise,b.price_per_night_paise,b.nights,b.status,COALESCE(b.notes,''),b.created_at::text,b.updated_at::text,COALESCE(p.name,''),COALESCE(p.city,''),COALESCE(p.address,''),COALESCE(p.image,''),COALESCE(p.images,'[]'::jsonb) FROM property_bookings b LEFT JOIN properties p ON p.id=b.property_id`
+const bookingSelect = `SELECT b.id::text,b.traveler_id::text,b.property_id::text,b.host_id::text,b.check_in::text,b.check_out::text,b.guests,b.rooms_required,b.total_price_paise,b.price_per_night_paise,b.nights,b.status,COALESCE(b.notes,''),b.created_at::text,b.updated_at::text,COALESCE(p.name,''),COALESCE(p.city,''),COALESCE(p.address,''),COALESCE(p.image,''),COALESCE(p.images,'[]'::jsonb),COALESCE(u.name,'Traveller'),COALESCE(u.email,''),COALESCE(u.phone_number,'') FROM property_bookings b LEFT JOIN properties p ON p.id=b.property_id LEFT JOIN users u ON u.id=b.traveler_id`
 
 func (h *Handler) List(c *gin.Context) {
 	claims := middleware.ClaimsFrom(c)
@@ -219,11 +219,11 @@ func (h *Handler) get(c *gin.Context, id string) (map[string]any, error) {
 }
 func scan(row pgx.Row) (map[string]any, error) {
 	var id, traveler, property, host, checkIn, checkOut, status, notes, created, updated string
-	var title, city, address, image string
+	var title, city, address, image, travelerName, travelerEmail, travelerPhone string
 	var images []byte
 	var guests, roomsRequired, nights int
 	var total, price int64
-	if err := row.Scan(&id, &traveler, &property, &host, &checkIn, &checkOut, &guests, &roomsRequired, &total, &price, &nights, &status, &notes, &created, &updated, &title, &city, &address, &image, &images); err != nil {
+	if err := row.Scan(&id, &traveler, &property, &host, &checkIn, &checkOut, &guests, &roomsRequired, &total, &price, &nights, &status, &notes, &created, &updated, &title, &city, &address, &image, &images, &travelerName, &travelerEmail, &travelerPhone); err != nil {
 		return nil, err
 	}
 	photo := image
@@ -234,7 +234,7 @@ func scan(row pgx.Row) (map[string]any, error) {
 		}
 	}
 	return map[string]any{"_id": id, "travelerId": traveler, "propertyId": property, "hostId": host, "checkIn": checkIn, "checkOut": checkOut, "guests": guests, "roomsRequired": roomsRequired, "totalPrice": float64(total) / 100, "pricePerNight": float64(price) / 100, "nights": nights, "status": status, "notes": notes, "createdAt": created, "updatedAt": updated,
-		"title": title, "experienceTitle": title, "date": checkIn, "startTime": "", "meetingPoint": address, "city": city, "photo": photo, "guestCount": guests}, nil
+		"title": title, "experienceTitle": title, "travelerName": travelerName, "travelerEmail": travelerEmail, "travelerPhone": travelerPhone, "date": checkIn, "startTime": "", "meetingPoint": address, "city": city, "photo": photo, "guestCount": guests}, nil
 }
 func parseDate(v string) (time.Time, error) {
 	if t, err := time.Parse(time.RFC3339, v); err == nil {

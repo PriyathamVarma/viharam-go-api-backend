@@ -11,6 +11,7 @@ import (
 
 var ErrNotFound = errors.New("user not found")
 var ErrEmailExists = errors.New("email already registered")
+var ErrPhoneExists = errors.New("phone number already registered")
 
 type UserRepository interface {
 	Create(context.Context, RegisterInput, string) (User, error)
@@ -19,6 +20,7 @@ type UserRepository interface {
 	FindByID(context.Context, string) (User, error)
 	FindOrCreateOAuth(context.Context, string, string, string, string) (User, error)
 	Delete(context.Context, string) error
+	UpdatePhone(context.Context, string, string) (User, error)
 }
 
 func (r *Repository) Delete(ctx context.Context, id string) error {
@@ -38,10 +40,28 @@ func NewRepository(db *database.Postgres) *Repository { return &Repository{db: d
 
 func (r *Repository) Create(ctx context.Context, input RegisterInput, passwordHash string) (User, error) {
 	var user User
-	err := r.db.Pool.QueryRow(ctx, `INSERT INTO users(name,email,password_hash,role) VALUES($1,$2,$3,$4) RETURNING id::text,name,email,role,COALESCE(phone_number,''),COALESCE(photo_url,''),COALESCE(bio,''),is_verified`, input.Name, strings.ToLower(strings.TrimSpace(input.Email)), passwordHash, input.Type).Scan(&user.ID, &user.Name, &user.Email, &user.Role, &user.PhoneNumber, &user.PhotoURL, &user.Bio, &user.IsVerified)
+	err := r.db.Pool.QueryRow(ctx, `INSERT INTO users(name,email,password_hash,role,phone_number) VALUES($1,$2,$3,$4,$5) RETURNING id::text,name,email,role,COALESCE(phone_number,''),COALESCE(photo_url,''),COALESCE(bio,''),is_verified`, input.Name, strings.ToLower(strings.TrimSpace(input.Email)), passwordHash, input.Type, input.Phone).Scan(&user.ID, &user.Name, &user.Email, &user.Role, &user.PhoneNumber, &user.PhotoURL, &user.Bio, &user.IsVerified)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "users_email_lower_unique") {
 			return User{}, ErrEmailExists
+		}
+		if strings.Contains(strings.ToLower(err.Error()), "users_phone_unique") {
+			return User{}, ErrPhoneExists
+		}
+		return User{}, err
+	}
+	return user, nil
+}
+
+func (r *Repository) UpdatePhone(ctx context.Context, id, phone string) (User, error) {
+	var user User
+	err := r.db.Pool.QueryRow(ctx, `UPDATE users SET phone_number=$2,updated_at=now() WHERE id=$1::uuid AND status='active' RETURNING id::text,name,email,role,COALESCE(phone_number,''),COALESCE(photo_url,''),COALESCE(bio,''),is_verified`, id, phone).Scan(&user.ID, &user.Name, &user.Email, &user.Role, &user.PhoneNumber, &user.PhotoURL, &user.Bio, &user.IsVerified)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "users_phone_unique") {
+			return User{}, ErrPhoneExists
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			return User{}, ErrNotFound
 		}
 		return User{}, err
 	}

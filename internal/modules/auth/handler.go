@@ -26,11 +26,44 @@ func (h *Handler) Register(c *gin.Context) {
 			_ = httpx.Fail(c, 409, "email_exists", err.Error())
 			return
 		}
+		if errors.Is(err, ErrPhoneExists) {
+			_ = httpx.Fail(c, 409, "phone_exists", "That phone number is already registered")
+			return
+		}
 		_ = httpx.Fail(c, 400, "invalid_request", err.Error())
 		return
 	}
 	setToken(c, token)
 	_ = httpx.Created(c, gin.H{"user": user, "token": token}, "Account created")
+}
+
+func (h *Handler) UpdateMe(c *gin.Context) {
+	claims := middleware.ClaimsFrom(c)
+	if claims == nil {
+		_ = httpx.Fail(c, 401, "unauthorized", "Authentication required")
+		return
+	}
+	var body struct {
+		Phone string `json:"phone"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		_ = httpx.Fail(c, 400, "invalid_request", "Invalid request body")
+		return
+	}
+	user, err := h.service.UpdatePhone(c.Request.Context(), claims.UserID, body.Phone)
+	if errors.Is(err, ErrPhoneExists) {
+		_ = httpx.Fail(c, 409, "phone_exists", "That phone number is already registered")
+		return
+	}
+	if errors.Is(err, ErrNotFound) {
+		_ = httpx.Fail(c, 404, "user_not_found", "User not found")
+		return
+	}
+	if err != nil {
+		_ = httpx.Fail(c, 400, "invalid_request", err.Error())
+		return
+	}
+	_ = httpx.OK(c, user, "Phone number saved")
 }
 func (h *Handler) Login(c *gin.Context) {
 	var input LoginInput

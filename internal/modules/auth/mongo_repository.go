@@ -50,7 +50,7 @@ func (r *MongoRepository) Create(ctx context.Context, input RegisterInput, passw
 	} else if !errors.Is(err, mongo.ErrNoDocuments) {
 		return User{}, err
 	}
-	doc := mongoUser{Name: input.Name, Email: email, PasswordHash: passwordHash, Type: input.Type}
+	doc := mongoUser{Name: input.Name, Email: email, PasswordHash: passwordHash, Type: input.Type, PhoneNumber: input.Phone}
 	result, err := r.db.Collection("users").InsertOne(ctx, doc)
 	if err != nil {
 		if mongo.IsDuplicateKeyError(err) {
@@ -62,6 +62,17 @@ func (r *MongoRepository) Create(ctx context.Context, input RegisterInput, passw
 		doc.ID = id
 	}
 	return toUser(doc), nil
+}
+
+func (r *MongoRepository) UpdatePhone(ctx context.Context, id, phone string) (User, error) {
+	objectID, err := bson.ObjectIDFromHex(id)
+	if err != nil {
+		return User{}, ErrNotFound
+	}
+	if _, err = r.db.Collection("users").UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": bson.M{"phoneNumber": phone}}); err != nil {
+		return User{}, err
+	}
+	return r.FindByID(ctx, id)
 }
 
 func (r *MongoRepository) EnsureDemo(ctx context.Context, input RegisterInput, passwordHash string) (User, error) {
