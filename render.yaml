@@ -2,8 +2,8 @@ services:
   - type: web
     name: viharam-go-api-backend
     runtime: go
-    buildCommand: go build -tags netgo -ldflags "-s -w" -o app ./cmd/api
-    startCommand: ./app
+    buildCommand: go build -tags netgo -ldflags "-s -w" -o app ./cmd/api && go build -tags netgo -ldflags "-s -w" -o migrate ./cmd/migrate
+    startCommand: ./migrate && ./app
     healthCheckPath: /health
     envVars:
       - key: APP_ENV

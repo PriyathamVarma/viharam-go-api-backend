@@ -119,10 +119,20 @@ func (r *Repository) FindOrCreateOAuth(ctx context.Context, provider, subject, n
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return User{}, err
 	}
-	var existingID string
-	err = r.db.Pool.QueryRow(ctx, `SELECT id::text FROM users WHERE lower(email)=lower($1) AND status='active'`, email).Scan(&existingID)
+	// Apple verifies the email identity before Supabase issues the access
+	// token. If the person already has a password account with that email,
+	// link the OAuth identity to it instead of leaving an orphaned Supabase
+	// auth user and returning an error.
+	err = r.db.Pool.QueryRow(ctx, `SELECT id::text FROM users WHERE lower(email)=lower($1) AND status='active'`, email).Scan(&user.ID)
 	if err == nil {
-		return User{}, errors.New("an account already exists for this email")
+		err = r.db.Pool.QueryRow(ctx, `
+			UPDATE users
+			SET auth_provider=$2, auth_subject=$3, updated_at=now()
+			WHERE id=$1::uuid
+			RETURNING id::text,name,email,role,COALESCE(phone_number,''),COALESCE(photo_url,''),COALESCE(bio,''),is_verified`,
+			user.ID, provider, subject,
+		).Scan(&user.ID, &user.Name, &user.Email, &user.Role, &user.PhoneNumber, &user.PhotoURL, &user.Bio, &user.IsVerified)
+		return user, err
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return User{}, err
