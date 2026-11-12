@@ -91,7 +91,10 @@ func (h *Handler) SupabaseLogin(c *gin.Context) {
 	}
 	user, token, err := h.service.LoginWithSupabase(c.Request.Context(), input.AccessToken, input.Name)
 	if err != nil {
-		_ = httpx.Fail(c, 401, "invalid_credentials", "Apple sign-in could not be verified")
+		// Keep the response actionable: this error does not include tokens or
+		// personal data, and is the only way the client can distinguish a
+		// rejected nonce/token from a missing Supabase configuration.
+		_ = httpx.Fail(c, 401, "invalid_credentials", err.Error())
 		return
 	}
 	setToken(c, token)

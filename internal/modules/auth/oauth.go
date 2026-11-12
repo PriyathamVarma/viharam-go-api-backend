@@ -31,6 +31,22 @@ func (s *Service) LoginWithSupabase(ctx context.Context, accessToken, fallbackNa
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
+		var body struct {
+			Msg              string `json:"msg"`
+			Error            string `json:"error"`
+			ErrorDescription string `json:"error_description"`
+		}
+		_ = json.NewDecoder(res.Body).Decode(&body)
+		detail := strings.TrimSpace(body.Msg)
+		if detail == "" {
+			detail = strings.TrimSpace(body.ErrorDescription)
+		}
+		if detail == "" {
+			detail = strings.TrimSpace(body.Error)
+		}
+		if detail != "" {
+			return User{}, "", fmt.Errorf("Supabase token rejected (%d): %s", res.StatusCode, detail)
+		}
 		return User{}, "", fmt.Errorf("Supabase token rejected (%d)", res.StatusCode)
 	}
 	var remote supabaseUser
