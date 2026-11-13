@@ -1,5 +1,7 @@
 package experiences
 
+import "encoding/json"
+
 type Experience struct {
 	ID                  string `json:"id"`
 	Slug                string `json:"slug"`
@@ -10,6 +12,7 @@ type Experience struct {
 	City                string `json:"city"`
 	State               string `json:"state"`
 	Village             string `json:"village,omitempty"`
+	Images              json.RawMessage `json:"images,omitempty"`
 	PricePerPersonPaise int64  `json:"pricePerPersonPaise"`
 	DurationMinutes     int    `json:"durationMinutes"`
 	MinGroupSize        int    `json:"minGroupSize"`
