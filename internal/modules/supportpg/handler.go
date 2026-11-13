@@ -99,7 +99,9 @@ func (h *Handler) Create(c *gin.Context) {
 	initial := map[string]any{"senderId": claims.UserID, "senderName": claims.Email, "senderRole": "user", "message": message, "attachments": array(body["attachments"]), "createdAt": time.Now().UTC()}
 	messages, _ := json.Marshal([]any{initial})
 	var id string
-	err := h.db.Pool.QueryRow(c, `INSERT INTO support_tickets(user_id,user_name,user_email,booking_id,experience_id,category,subject,priority,messages) VALUES($1::uuid,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id::text`, claims.UserID, claims.Email, claims.Email, text(body["bookingId"]), text(body["experienceId"]), category, subject, priority, messages).Scan(&id)
+	// Pass JSONB as text. pgx can encode []byte as bytea, which PostgreSQL
+	// rejects when the target column is jsonb.
+	err := h.db.Pool.QueryRow(c, `INSERT INTO support_tickets(user_id,user_name,user_email,booking_id,experience_id,category,subject,priority,messages) VALUES($1::uuid,$2,$3,$4,$5,$6,$7,$8,$9::jsonb) RETURNING id::text`, claims.UserID, claims.Email, claims.Email, text(body["bookingId"]), text(body["experienceId"]), category, subject, priority, string(messages)).Scan(&id)
 	if err != nil {
 		_ = httpx.Fail(c, 500, "database_error", "Failed to create support ticket")
 		return
@@ -172,7 +174,7 @@ func (h *Handler) Update(c *gin.Context) {
 	if status == "resolved" {
 		resolvedBy = claims.Email
 	}
-	if _, err := h.db.Pool.Exec(c, "UPDATE support_tickets SET status=$1,priority=$2,assigned_to=COALESCE($3,assigned_to),resolved_at=CASE WHEN $1='resolved' THEN COALESCE(resolved_at,now()) ELSE resolved_at END,resolved_by=CASE WHEN $1='resolved' THEN $4 ELSE resolved_by END,messages=messages||$5::jsonb,updated_at=now() WHERE id=$6::uuid", status, priority, nullable(body, "assignedTo"), resolvedBy, raw, c.Param("id")); err != nil {
+	if _, err := h.db.Pool.Exec(c, "UPDATE support_tickets SET status=$1,priority=$2,assigned_to=COALESCE($3,assigned_to),resolved_at=CASE WHEN $1='resolved' THEN COALESCE(resolved_at,now()) ELSE resolved_at END,resolved_by=CASE WHEN $1='resolved' THEN $4 ELSE resolved_by END,messages=messages||$5::jsonb,updated_at=now() WHERE id=$6::uuid", status, priority, nullable(body, "assignedTo"), resolvedBy, string(raw), c.Param("id")); err != nil {
 		_ = httpx.Fail(c, 500, "database_error", "Failed to update ticket")
 		return
 	}
@@ -215,7 +217,7 @@ func (h *Handler) Message(c *gin.Context) {
 	}
 	msg := map[string]any{"senderId": claims.UserID, "senderName": claims.Email, "senderRole": role, "message": text(body["message"]), "attachments": array(body["attachments"]), "createdAt": time.Now().UTC()}
 	raw, _ := json.Marshal([]any{msg})
-	if _, err := h.db.Pool.Exec(c, "UPDATE support_tickets SET messages=messages||$1::jsonb,status=$2,updated_at=now() WHERE id=$3::uuid", raw, status, c.Param("id")); err != nil {
+	if _, err := h.db.Pool.Exec(c, "UPDATE support_tickets SET messages=messages||$1::jsonb,status=$2,updated_at=now() WHERE id=$3::uuid", string(raw), status, c.Param("id")); err != nil {
 		_ = httpx.Fail(c, 500, "database_error", "Failed to send message")
 		return
 	}
@@ -241,7 +243,7 @@ func (h *Handler) AdminNote(c *gin.Context) {
 		_ = httpx.Fail(c, 404, "not_found", "Ticket not found")
 		return
 	}
-	if _, err := h.db.Pool.Exec(c, "UPDATE support_tickets SET admin_notes=admin_notes||$1::jsonb,updated_at=now() WHERE id=$2::uuid", raw, c.Param("id")); err != nil {
+	if _, err := h.db.Pool.Exec(c, "UPDATE support_tickets SET admin_notes=admin_notes||$1::jsonb,updated_at=now() WHERE id=$2::uuid", string(raw), c.Param("id")); err != nil {
 		_ = httpx.Fail(c, 500, "database_error", "Failed to add admin note")
 		return
 	}
